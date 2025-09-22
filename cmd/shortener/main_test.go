@@ -86,115 +86,121 @@ func TestMainHandler_StoreAndRedirect_Comprehensive(t *testing.T) {
 	}
 }
 
-// func TestMainHandler_RootPath_POST(t *testing.T) {
-// 	us := NewURLShortener()
-// 	handler := us.mainHandler()
+func TestMainHandler_RootPath_POST(t *testing.T) {
+	us := NewURLShortener()
+	handler := us.mainHandler()
 
-// 	originalURL := "https://example.com"
-// 	headers := map[string]string{
-// 		"Content-Type": "text/plain",
-// 	}
+	originalURL := "https://example.com"
+	headers := map[string]string{
+		"Content-Type": "text/plain",
+	}
 
-// 	resp, body := testRequest(t, handler, "POST", "/", bytes.NewBufferString(originalURL), headers)
+	resp, body := testRequest(t, handler, "POST", "/", bytes.NewBufferString(originalURL), headers)
+	defer resp.Body.Close()
 
-// 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
-// 	assert.Contains(t, body, "http://localhost:8080/")
-// }
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+	assert.Contains(t, body, "http://localhost:8080/")
+}
 
-// func TestURLShortener_StoreAndRetrieve(t *testing.T) {
-// 	us := NewURLShortener()
-// 	originalURL := "https://example.com"
+func TestURLShortener_StoreAndRetrieve(t *testing.T) {
+	us := NewURLShortener()
+	originalURL := "https://example.com"
 
-// 	shortCode := us.Store(originalURL)
-// 	require.NotEmpty(t, shortCode)
+	shortCode := us.Store(originalURL)
+	require.NotEmpty(t, shortCode)
 
-// 	retrievedURL, exists := us.Retrieve(shortCode)
-// 	assert.True(t, exists)
-// 	assert.Equal(t, originalURL, retrievedURL)
-// }
+	retrievedURL, exists := us.Retrieve(shortCode)
+	assert.True(t, exists)
+	assert.Equal(t, originalURL, retrievedURL)
+}
 
-// func TestMainHandler_RootPath_InvalidMethod(t *testing.T) {
-// 	us := NewURLShortener()
-// 	handler := us.mainHandler()
+func TestMainHandler_RootPath_InvalidMethod(t *testing.T) {
+	us := NewURLShortener()
+	handler := us.mainHandler()
 
-// 	invalidMethods := []string{"GET", "PUT", "DELETE", "PATCH"}
+	invalidMethods := []string{"GET", "PUT", "DELETE", "PATCH"}
 
-// 	for _, method := range invalidMethods {
-// 		t.Run(method, func(t *testing.T) {
-// 			resp, _ := testRequest(t, handler, method, "/", nil, nil)
-// 			assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
-// 		})
-// 	}
-// }
+	for _, method := range invalidMethods {
+		t.Run(method, func(t *testing.T) {
+			resp, _ := testRequest(t, handler, method, "/", nil, nil)
+			defer resp.Body.Close()
+			assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
+		})
+	}
+}
 
-// func TestMainHandler_ShortURL_InvalidMethod(t *testing.T) {
-// 	us := NewURLShortener()
-// 	handler := us.mainHandler()
+func TestMainHandler_ShortURL_InvalidMethod(t *testing.T) {
+	us := NewURLShortener()
+	handler := us.mainHandler()
 
-// 	invalidMethods := []string{"POST", "PUT", "DELETE", "PATCH"}
+	invalidMethods := []string{"POST", "PUT", "DELETE", "PATCH"}
 
-// 	for _, method := range invalidMethods {
-// 		t.Run(method, func(t *testing.T) {
-// 			resp, _ := testRequest(t, handler, method, "/abc", nil, nil)
-// 			assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
-// 		})
-// 	}
-// }
+	for _, method := range invalidMethods {
+		t.Run(method, func(t *testing.T) {
+			resp, _ := testRequest(t, handler, method, "/abc", nil, nil)
+			defer resp.Body.Close()
+			assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
+		})
+	}
+}
 
-// func TestMainHandler_NotFound(t *testing.T) {
-// 	us := NewURLShortener()
-// 	handler := us.mainHandler()
+func TestMainHandler_NotFound(t *testing.T) {
+	us := NewURLShortener()
+	handler := us.mainHandler()
 
-// 	resp, _ := testRequest(t, handler, "GET", "/nonexistent", nil, nil)
+	resp, _ := testRequest(t, handler, "GET", "/nonexistent", nil, nil)
+	defer resp.Body.Close()
 
-// 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-// }
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
 
-// func TestMainHandler_InvalidContentType(t *testing.T) {
-// 	us := NewURLShortener()
-// 	handler := us.mainHandler()
+func TestMainHandler_InvalidContentType(t *testing.T) {
+	us := NewURLShortener()
+	handler := us.mainHandler()
 
-// 	headers := map[string]string{
-// 		"Content-Type": "application/json",
-// 	}
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
 
-// 	resp, _ := testRequest(t, handler, "POST", "/", bytes.NewBufferString("https://example.com"), headers)
+	resp, _ := testRequest(t, handler, "POST", "/", bytes.NewBufferString("https://example.com"), headers)
+	defer resp.Body.Close()
 
-// 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-// }
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
 
-// func TestMainHandler_EmptyBody(t *testing.T) {
-// 	us := NewURLShortener()
-// 	handler := us.mainHandler()
+func TestMainHandler_EmptyBody(t *testing.T) {
+	us := NewURLShortener()
+	handler := us.mainHandler()
 
-// 	headers := map[string]string{
-// 		"Content-Type": "text/plain",
-// 	}
+	headers := map[string]string{
+		"Content-Type": "text/plain",
+	}
 
-// 	resp, _ := testRequest(t, handler, "POST", "/", bytes.NewBufferString(""), headers)
+	resp, _ := testRequest(t, handler, "POST", "/", bytes.NewBufferString(""), headers)
+	defer resp.Body.Close()
 
-// 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-// }
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
 
-// func TestURLShortener_RetrieveNonExistent(t *testing.T) {
-// 	us := NewURLShortener()
+func TestURLShortener_RetrieveNonExistent(t *testing.T) {
+	us := NewURLShortener()
 
-// 	retrievedURL, exists := us.Retrieve("nonexistent")
-// 	assert.False(t, exists)
-// 	assert.Empty(t, retrievedURL)
-// }
+	retrievedURL, exists := us.Retrieve("nonexistent")
+	assert.False(t, exists)
+	assert.Empty(t, retrievedURL)
+}
 
-// func TestGenerateUniqueShortURL_Uniqueness(t *testing.T) {
-// 	us := NewURLShortener()
+func TestGenerateUniqueShortURL_Uniqueness(t *testing.T) {
+	us := NewURLShortener()
 
-// 	codes := make(map[string]bool)
-// 	const numCodes = 10
+	codes := make(map[string]bool)
+	const numCodes = 10
 
-// 	for i := 0; i < numCodes; i++ {
-// 		code := us.GenerateUniqueShortURL()
-// 		assert.False(t, codes[code], "Generated duplicate code: %s", code)
-// 		codes[code] = true
-// 	}
+	for i := 0; i < numCodes; i++ {
+		code := us.GenerateUniqueShortURL()
+		assert.False(t, codes[code], "Generated duplicate code: %s", code)
+		codes[code] = true
+	}
 
-// 	assert.Len(t, codes, numCodes)
-// }
+	assert.Len(t, codes, numCodes)
+}
