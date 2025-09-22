@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+
+	"github.com/go-chi/chi/v5"
 )
 
 var localhost string = "http://localhost:8080/"
@@ -66,9 +68,7 @@ func main() {
 func run() error {
 	us := NewURLShortener()
 
-	http.HandleFunc("/", us.mainHandler)
-
-	return http.ListenAndServe(`:8080`, nil)
+	return http.ListenAndServe(":8080", us.mainHandler())
 }
 
 func (us *URLShortener) handlerRoot(w http.ResponseWriter, r *http.Request) {
@@ -119,29 +119,10 @@ func (us *URLShortener) handlerGet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (us *URLShortener) mainHandler(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
+func (us *URLShortener) mainHandler() chi.Router {
+	r := chi.NewRouter()
 
-	switch path {
-	case "":
-		http.Error(w, "Path is empty", http.StatusBadRequest)
-		return
-
-	case "/":
-		if r.Method == http.MethodPost {
-			us.handlerRoot(w, r)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusBadRequest)
-		}
-		return
-
-	default:
-		// Любой другой путь - обрабатываем GET для редиректа
-		if r.Method == http.MethodGet {
-			us.handlerGet(w, r)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusBadRequest)
-		}
-		return
-	}
+	r.Post("/", us.handlerRoot)
+	r.Get("/{shortCode}", us.handlerGet)
+	return r
 }

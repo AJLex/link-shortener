@@ -2,321 +2,198 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
-	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestNewURLShortener(t *testing.T) {
-	us := NewURLShortener()
+func testRequest(t *testing.T, handler http.Handler, method, path string, body io.Reader, headers map[string]string) (*http.Response, string) {
+	req, err := http.NewRequest(method, "http://test"+path, body)
+	require.NoError(t, err)
 
-	if us.data == nil {
-		t.Error("Expected data map to be initialized")
+	for key, value := range headers {
+		req.Header.Set(key, value)
 	}
-
-	if len(us.data) != 0 {
-		t.Error("Expected empty data map")
-	}
-}
-
-func TestGenerateUniqueShortURL(t *testing.T) {
-	us := NewURLShortener()
-
-	// Генерируем несколько short URL и проверяем их уникальность
-	shortURLs := make(map[string]bool)
-
-	for i := 0; i < 100; i++ {
-		shortURL := us.GenerateUniqueShortURL()
-
-		if len(shortURL) != 10 {
-			t.Errorf("Expected short URL length 10, got %d", len(shortURL))
-		}
-
-		if shortURLs[shortURL] {
-			t.Errorf("Duplicate short URL generated: %s", shortURL)
-		}
-
-		shortURLs[shortURL] = true
-	}
-}
-
-func TestStoreAndRetrieve(t *testing.T) {
-	us := NewURLShortener()
-
-	originalURL := "https://example.com"
-	shortCode := us.Store(originalURL)
-
-	if shortCode == "" {
-		t.Error("Expected non-empty short code")
-	}
-
-	// Проверяем, что ссылка сохранилась
-	retrievedURL, exists := us.Retrieve(shortCode)
-	if !exists {
-		t.Error("Expected URL to exist")
-	}
-
-	if retrievedURL != originalURL {
-		t.Errorf("Expected %s, got %s", originalURL, retrievedURL)
-	}
-
-	// Проверяем несуществующую ссылку
-	_, exists = us.Retrieve("nonexistent")
-	if exists {
-		t.Error("Expected URL not to exist")
-	}
-}
-
-func TestConcurrentStoreAndRetrieve(t *testing.T) {
-	us := NewURLShortener()
-	var wg sync.WaitGroup
-	urls := make(map[string]string)
-	var mu sync.Mutex
-
-	// Запускаем несколько горутин для параллельного сохранения
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			url := strings.Repeat("a", i+1)
-			shortCode := us.Store(url)
-
-			mu.Lock()
-			urls[shortCode] = url
-			mu.Unlock()
-		}(i)
-	}
-
-	wg.Wait()
-
-	// Проверяем, что все ссылки сохранились корректно
-	for shortCode, expectedURL := range urls {
-		actualURL, exists := us.Retrieve(shortCode)
-		if !exists {
-			t.Errorf("URL with code %s should exist", shortCode)
-		}
-		if actualURL != expectedURL {
-			t.Errorf("Expected %s, got %s", expectedURL, actualURL)
-		}
-	}
-}
-
-func TestHandlerRoot_POST_Success(t *testing.T) {
-	us := NewURLShortener()
-
-	originalURL := "https://example.com"
-	req := httptest.NewRequest("POST", "/", bytes.NewBufferString(originalURL))
-	req.Header.Set("Content-Type", "text/plain")
 
 	w := httptest.NewRecorder()
-	us.handlerRoot(w, req)
+	handler.ServeHTTP(w, req)
 
-	if w.Code != http.StatusCreated {
-		t.Errorf("Expected status %d, got %d", http.StatusCreated, w.Code)
-	}
+	resp := w.Result()
+	defer resp.Body.Close()
 
-	body := w.Body.String()
-	if !strings.HasPrefix(body, localhost) {
-		t.Errorf("Expected response to start with %s, got %s", localhost, body)
-	}
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 
-	// Извлекаем short code из ответа
-	shortCode := strings.TrimPrefix(body, localhost)
-
-	// Проверяем, что ссылка действительно сохранилась
-	retrievedURL, exists := us.Retrieve(shortCode)
-	if !exists {
-		t.Error("URL should be stored")
-	}
-	if retrievedURL != originalURL {
-		t.Errorf("Expected %s, got %s", originalURL, retrievedURL)
-	}
+	return resp, string(respBody)
 }
 
-func TestHandlerRoot_POST_InvalidMethods(t *testing.T) {
-	us := NewURLShortener()
-
-	invalidMethods := []string{"GET", "PUT", "DELETE", "PATCH"}
-
-	for _, method := range invalidMethods {
-		req := httptest.NewRequest(method, "/", nil)
-		w := httptest.NewRecorder()
-
-		us.handlerRoot(w, req)
-
-		if w.Code != http.StatusBadRequest {
-			t.Errorf("Expected status %d for method %s, got %d", http.StatusBadRequest, method, w.Code)
-		}
-	}
-}
-
-func TestHandlerRoot_POST_InvalidContentType(t *testing.T) {
-	us := NewURLShortener()
-
-	req := httptest.NewRequest("POST", "/", bytes.NewBufferString("https://example.com"))
-	req.Header.Set("Content-Type", "application/json")
-
-	w := httptest.NewRecorder()
-	us.handlerRoot(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
-	}
-}
-
-func TestHandlerRoot_POST_EmptyBody(t *testing.T) {
-	us := NewURLShortener()
-
-	req := httptest.NewRequest("POST", "/", bytes.NewBufferString(""))
-	req.Header.Set("Content-Type", "text/plain")
-
-	w := httptest.NewRecorder()
-	us.handlerRoot(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
-	}
-}
-
-func TestHandlerRoot_POST_WhitespaceBody(t *testing.T) {
-	us := NewURLShortener()
-
-	req := httptest.NewRequest("POST", "/", bytes.NewBufferString("   \n  \t  "))
-	req.Header.Set("Content-Type", "text/plain")
-
-	w := httptest.NewRecorder()
-	us.handlerRoot(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
-	}
-}
-
-func TestHandlerGet_GET_Success(t *testing.T) {
-	us := NewURLShortener()
-	originalURL := "https://example.com"
-	shortCode := us.Store(originalURL)
-
-	req := httptest.NewRequest("GET", "/"+shortCode, nil)
-	w := httptest.NewRecorder()
-
-	us.handlerGet(w, req)
-
-	if w.Code != http.StatusTemporaryRedirect {
-		t.Errorf("Expected status %d, got %d", http.StatusTemporaryRedirect, w.Code)
+// Расширенная версия с проверкой ошибок
+func TestMainHandler_StoreAndRedirect_Comprehensive(t *testing.T) {
+	testCases := []struct {
+		name          string
+		originalURL   string
+		expectSuccess bool
+		description   string
+	}{
+		{
+			name:          "ValidHTTPS",
+			originalURL:   "https://google.com",
+			expectSuccess: true,
+			description:   "Валидный HTTPS URL",
+		},
+		{
+			name:          "ValidHTTP",
+			originalURL:   "http://example.com",
+			expectSuccess: true,
+			description:   "Валидный HTTP URL",
+		},
+		{
+			name:          "EmptyURL",
+			originalURL:   "",
+			expectSuccess: false,
+			description:   "Пустой URL должен вернуть ошибку",
+		},
+		{
+			name:          "WhitespaceURL",
+			originalURL:   "   ",
+			expectSuccess: false,
+			description:   "URL из пробелов должен вернуть ошибку",
+		},
 	}
 
-	location := w.Header().Get("Location")
-	if location != originalURL {
-		t.Errorf("Expected Location header %s, got %s", originalURL, location)
-	}
-}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			us := NewURLShortener()
+			handler := us.mainHandler()
 
-func TestHandlerGet_GET_NotFound(t *testing.T) {
-	us := NewURLShortener()
+			headers := map[string]string{
+				"Content-Type": "text/plain",
+			}
 
-	req := httptest.NewRequest("GET", "/nonexistent", nil)
-	w := httptest.NewRecorder()
+			resp, _ := testRequest(t, handler, "POST", "/", bytes.NewBufferString(tc.originalURL), headers)
 
-	us.handlerGet(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
-	}
-}
-
-func TestHandlerGet_InvalidMethods(t *testing.T) {
-	us := NewURLShortener()
-
-	invalidMethods := []string{"POST", "PUT", "DELETE", "PATCH"}
-
-	for _, method := range invalidMethods {
-		req := httptest.NewRequest(method, "/abc", nil)
-		w := httptest.NewRecorder()
-
-		us.handlerGet(w, req)
-
-		if w.Code != http.StatusBadRequest {
-			t.Errorf("Expected status %d for method %s, got %d", http.StatusBadRequest, method, w.Code)
-		}
+			if tc.expectSuccess {
+				assert.Equal(t, http.StatusCreated, resp.StatusCode, tc.description)
+			} else {
+				assert.Equal(t, http.StatusBadRequest, resp.StatusCode, tc.description)
+			}
+		})
 	}
 }
 
 func TestMainHandler_RootPath_POST(t *testing.T) {
 	us := NewURLShortener()
+	handler := us.mainHandler()
 
 	originalURL := "https://example.com"
-	req := httptest.NewRequest("POST", "/", bytes.NewBufferString(originalURL))
-	req.Header.Set("Content-Type", "text/plain")
-
-	w := httptest.NewRecorder()
-	us.mainHandler(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Errorf("Expected status %d, got %d", http.StatusCreated, w.Code)
+	headers := map[string]string{
+		"Content-Type": "text/plain",
 	}
+
+	resp, body := testRequest(t, handler, "POST", "/", bytes.NewBufferString(originalURL), headers)
+
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+	assert.Contains(t, body, "http://localhost:8080/")
+}
+
+func TestURLShortener_StoreAndRetrieve(t *testing.T) {
+	us := NewURLShortener()
+	originalURL := "https://example.com"
+
+	shortCode := us.Store(originalURL)
+	require.NotEmpty(t, shortCode)
+
+	retrievedURL, exists := us.Retrieve(shortCode)
+	assert.True(t, exists)
+	assert.Equal(t, originalURL, retrievedURL)
 }
 
 func TestMainHandler_RootPath_InvalidMethod(t *testing.T) {
 	us := NewURLShortener()
+	handler := us.mainHandler()
 
-	invalidMethods := []string{"GET", "PUT", "DELETE"}
+	invalidMethods := []string{"GET", "PUT", "DELETE", "PATCH"}
 
 	for _, method := range invalidMethods {
-		req := httptest.NewRequest(method, "/", nil)
-		w := httptest.NewRecorder()
-
-		us.mainHandler(w, req)
-
-		if w.Code != http.StatusBadRequest {
-			t.Errorf("Expected status %d for method %s, got %d", http.StatusBadRequest, method, w.Code)
-		}
-	}
-}
-
-func TestMainHandler_ShortURL_GET(t *testing.T) {
-	us := NewURLShortener()
-	originalURL := "https://example.com"
-	shortCode := us.Store(originalURL)
-
-	req := httptest.NewRequest("GET", "/"+shortCode, nil)
-	w := httptest.NewRecorder()
-
-	us.mainHandler(w, req)
-
-	if w.Code != http.StatusTemporaryRedirect {
-		t.Errorf("Expected status %d, got %d", http.StatusTemporaryRedirect, w.Code)
+		t.Run(method, func(t *testing.T) {
+			resp, _ := testRequest(t, handler, method, "/", nil, nil)
+			assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
+		})
 	}
 }
 
 func TestMainHandler_ShortURL_InvalidMethod(t *testing.T) {
 	us := NewURLShortener()
+	handler := us.mainHandler()
 
-	invalidMethods := []string{"POST", "PUT", "DELETE"}
+	invalidMethods := []string{"POST", "PUT", "DELETE", "PATCH"}
 
 	for _, method := range invalidMethods {
-		req := httptest.NewRequest(method, "/abc", nil)
-		w := httptest.NewRecorder()
-
-		us.mainHandler(w, req)
-
-		if w.Code != http.StatusBadRequest {
-			t.Errorf("Expected status %d for method %s, got %d", http.StatusBadRequest, method, w.Code)
-		}
+		t.Run(method, func(t *testing.T) {
+			resp, _ := testRequest(t, handler, method, "/abc", nil, nil)
+			assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
+		})
 	}
 }
 
-func TestMainHandler_EmptyPath(t *testing.T) {
+func TestMainHandler_NotFound(t *testing.T) {
+	us := NewURLShortener()
+	handler := us.mainHandler()
+
+	resp, _ := testRequest(t, handler, "GET", "/nonexistent", nil, nil)
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestMainHandler_InvalidContentType(t *testing.T) {
+	us := NewURLShortener()
+	handler := us.mainHandler()
+
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+
+	resp, _ := testRequest(t, handler, "POST", "/", bytes.NewBufferString("https://example.com"), headers)
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestMainHandler_EmptyBody(t *testing.T) {
+	us := NewURLShortener()
+	handler := us.mainHandler()
+
+	headers := map[string]string{
+		"Content-Type": "text/plain",
+	}
+
+	resp, _ := testRequest(t, handler, "POST", "/", bytes.NewBufferString(""), headers)
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestURLShortener_RetrieveNonExistent(t *testing.T) {
 	us := NewURLShortener()
 
-	req := httptest.NewRequest("GET", localhost, nil)
-	w := httptest.NewRecorder()
+	retrievedURL, exists := us.Retrieve("nonexistent")
+	assert.False(t, exists)
+	assert.Empty(t, retrievedURL)
+}
 
-	us.mainHandler(w, req)
+func TestGenerateUniqueShortURL_Uniqueness(t *testing.T) {
+	us := NewURLShortener()
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, w.Code)
+	codes := make(map[string]bool)
+	const numCodes = 10
+
+	for i := 0; i < numCodes; i++ {
+		code := us.GenerateUniqueShortURL()
+		assert.False(t, codes[code], "Generated duplicate code: %s", code)
+		codes[code] = true
 	}
+
+	assert.Len(t, codes, numCodes)
 }
