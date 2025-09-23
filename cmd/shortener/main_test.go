@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/AJLex/link-shortener/internal/config"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,6 +31,14 @@ func testRequest(t *testing.T, handler http.Handler, method, path string, body i
 	require.NoError(t, err)
 
 	return resp, string(respBody)
+}
+
+// Вспомогательная функция для создания тестового конфига
+func createTestConfig() *config.Config {
+	return &config.Config{
+		ServerAddress: "localhost:8080",
+		BaseURL:       "http://localhost:8080",
+	}
 }
 
 // Расширенная версия с проверкой ошибок
@@ -67,7 +77,8 @@ func TestMainHandler_StoreAndRedirect_Comprehensive(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			us := NewURLShortener()
+			cfg := createTestConfig()
+			us := NewURLShortener(cfg.BaseURL)
 			handler := us.mainHandler()
 
 			headers := map[string]string{
@@ -87,7 +98,8 @@ func TestMainHandler_StoreAndRedirect_Comprehensive(t *testing.T) {
 }
 
 func TestMainHandler_RootPath_POST(t *testing.T) {
-	us := NewURLShortener()
+	cfg := createTestConfig()
+	us := NewURLShortener(cfg.BaseURL)
 	handler := us.mainHandler()
 
 	originalURL := "https://example.com"
@@ -99,11 +111,12 @@ func TestMainHandler_RootPath_POST(t *testing.T) {
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
-	assert.Contains(t, body, "http://localhost:8080/")
+	assert.Contains(t, body, cfg.BaseURL+"/")
 }
 
 func TestURLShortener_StoreAndRetrieve(t *testing.T) {
-	us := NewURLShortener()
+	cfg := createTestConfig()
+	us := NewURLShortener(cfg.BaseURL)
 	originalURL := "https://example.com"
 
 	shortCode := us.Store(originalURL)
@@ -115,7 +128,8 @@ func TestURLShortener_StoreAndRetrieve(t *testing.T) {
 }
 
 func TestMainHandler_RootPath_InvalidMethod(t *testing.T) {
-	us := NewURLShortener()
+	cfg := createTestConfig()
+	us := NewURLShortener(cfg.BaseURL)
 	handler := us.mainHandler()
 
 	invalidMethods := []string{"GET", "PUT", "DELETE", "PATCH"}
@@ -130,7 +144,8 @@ func TestMainHandler_RootPath_InvalidMethod(t *testing.T) {
 }
 
 func TestMainHandler_ShortURL_InvalidMethod(t *testing.T) {
-	us := NewURLShortener()
+	cfg := createTestConfig()
+	us := NewURLShortener(cfg.BaseURL)
 	handler := us.mainHandler()
 
 	invalidMethods := []string{"POST", "PUT", "DELETE", "PATCH"}
@@ -145,7 +160,8 @@ func TestMainHandler_ShortURL_InvalidMethod(t *testing.T) {
 }
 
 func TestMainHandler_NotFound(t *testing.T) {
-	us := NewURLShortener()
+	cfg := createTestConfig()
+	us := NewURLShortener(cfg.BaseURL)
 	handler := us.mainHandler()
 
 	resp, _ := testRequest(t, handler, "GET", "/nonexistent", nil, nil)
@@ -155,7 +171,8 @@ func TestMainHandler_NotFound(t *testing.T) {
 }
 
 func TestMainHandler_InvalidContentType(t *testing.T) {
-	us := NewURLShortener()
+	cfg := createTestConfig()
+	us := NewURLShortener(cfg.BaseURL)
 	handler := us.mainHandler()
 
 	headers := map[string]string{
@@ -169,7 +186,8 @@ func TestMainHandler_InvalidContentType(t *testing.T) {
 }
 
 func TestMainHandler_EmptyBody(t *testing.T) {
-	us := NewURLShortener()
+	cfg := createTestConfig()
+	us := NewURLShortener(cfg.BaseURL)
 	handler := us.mainHandler()
 
 	headers := map[string]string{
@@ -183,7 +201,8 @@ func TestMainHandler_EmptyBody(t *testing.T) {
 }
 
 func TestURLShortener_RetrieveNonExistent(t *testing.T) {
-	us := NewURLShortener()
+	cfg := createTestConfig()
+	us := NewURLShortener(cfg.BaseURL)
 
 	retrievedURL, exists := us.Retrieve("nonexistent")
 	assert.False(t, exists)
@@ -191,7 +210,8 @@ func TestURLShortener_RetrieveNonExistent(t *testing.T) {
 }
 
 func TestGenerateUniqueShortURL_Uniqueness(t *testing.T) {
-	us := NewURLShortener()
+	cfg := createTestConfig()
+	us := NewURLShortener(cfg.BaseURL)
 
 	codes := make(map[string]bool)
 	const numCodes = 10

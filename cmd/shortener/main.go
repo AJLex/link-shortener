@@ -8,19 +8,21 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/AJLex/link-shortener/internal/config"
+
 	"github.com/go-chi/chi/v5"
 )
 
-var localhost string = "http://localhost:8080/"
-
 type URLShortener struct {
-	mu   sync.RWMutex
-	data map[string]string // shortURL -> originalURL
+	mu      sync.RWMutex
+	data    map[string]string // shortURL -> originalURL
+	baseURL string
 }
 
-func NewURLShortener() *URLShortener {
+func NewURLShortener(baseURL string) *URLShortener {
 	return &URLShortener{
-		data: make(map[string]string),
+		data:    make(map[string]string),
+		baseURL: baseURL,
 	}
 }
 
@@ -66,9 +68,10 @@ func main() {
 
 // функция run будет полезна при инициализации зависимостей сервера перед запуском
 func run() error {
-	us := NewURLShortener()
+	cfg := config.LoadConfig()
+	us := NewURLShortener(cfg.BaseURL)
 
-	return http.ListenAndServe(":8080", us.mainHandler())
+	return http.ListenAndServe(cfg.ServerAddress, us.mainHandler())
 }
 
 func (us *URLShortener) handlerRoot(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +104,7 @@ func (us *URLShortener) handlerRoot(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte(localhost + shortCode))
+	w.Write([]byte(strings.Join([]string{us.baseURL, shortCode}, "/")))
 }
 
 func (us *URLShortener) handlerGet(w http.ResponseWriter, r *http.Request) {
