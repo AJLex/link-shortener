@@ -3,22 +3,58 @@ package config
 import (
 	"flag"
 	"fmt"
+	"os"
 	"strings"
 )
+
+// Константы для значений по умолчанию
+const (
+	defaultServerAddress = ":8080"
+	defaultBaseURL       = "http://localhost:8080"
+)
+
+// EnvGetter интерфейс для получения переменных окружения
+type EnvGetter interface {
+	Get(key string) string
+}
+
+// RealEnvGetter реализация для реальных переменных окружения
+type RealEnvGetter struct{}
+
+func (r RealEnvGetter) Get(key string) string {
+	return os.Getenv(key)
+}
 
 type Config struct {
 	ServerAddress string
 	BaseURL       string
 }
 
-func LoadConfig() *Config {
-	cfg := &Config{}
+func getConfigValue(envGetter EnvGetter, envKey, flagValue string) string {
+	// Получаем значения переменной окружения (имеет приоритет над флагом)
+	if envValue := envGetter.Get(envKey); envValue != "" {
+		return envValue
+	}
+	// Вернём либо значения флага, либо значение по умолчанию
+	return flagValue
+}
 
+// LoadConfig загружает конфигурацию с использованием реальных переменных окружения
+func LoadConfig() Config {
+	return LoadConfigWithEnv(RealEnvGetter{})
+}
+
+// LoadConfigWithEnv загружает конфигурацию с использованием переданного EnvGetter
+func LoadConfigWithEnv(envGetter EnvGetter) Config {
 	// Определяем флаги командной строки
-	flag.StringVar(&cfg.ServerAddress, "a", "localhost:8080", "HTTP server address")
-	flag.StringVar(&cfg.BaseURL, "b", "http://localhost:8080", "Base URL for shortened links")
-
+	serverAddressFlag := flag.String("a", defaultServerAddress, "Server address")
+	baseURLFlag := flag.String("b", defaultBaseURL, "Base URL")
 	flag.Parse()
+
+	cfg := Config{
+		ServerAddress: getConfigValue(envGetter, "SERVER_ADDRESS", *serverAddressFlag),
+		BaseURL:       getConfigValue(envGetter, "BASE_URL", *baseURLFlag),
+	}
 
 	// Нормализуем BaseURL (убираем trailing slash)
 	cfg.BaseURL = strings.TrimSuffix(cfg.BaseURL, "/")
