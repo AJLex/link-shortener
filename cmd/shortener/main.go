@@ -9,8 +9,10 @@ import (
 	"sync"
 
 	"github.com/AJLex/link-shortener/internal/config"
+	"github.com/AJLex/link-shortener/internal/logger"
 
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
 )
 
 type URLShortener struct {
@@ -71,7 +73,13 @@ func run() error {
 	cfg := config.LoadConfig()
 	us := NewURLShortener(cfg.BaseURL)
 
-	return http.ListenAndServe(cfg.ServerAddress, us.mainHandler())
+	if err := logger.Initialize(zap.InfoLevel.String()); err != nil {
+		return err
+	}
+
+	logger.Log.Info("Running server", zap.String("address", cfg.ServerAddress))
+
+	return http.ListenAndServe(cfg.ServerAddress, logger.RequestLogger(us.mainHandler()))
 }
 
 func (us *URLShortener) handlerRoot(w http.ResponseWriter, r *http.Request) {
