@@ -112,7 +112,7 @@ func TestHandlerPostJson(t *testing.T) {
 		{
 			name:          "ValidRequest",
 			body:          "{\"url\": \"https://google.com\"}",
-			contentType:   models.TypeApplicationJson,
+			contentType:   models.TypeApplicationJSON,
 			statusCode:    http.StatusCreated,
 			expectSuccess: true,
 			description:   "Валидный HTTPS URL",
@@ -120,7 +120,7 @@ func TestHandlerPostJson(t *testing.T) {
 		{
 			name:          "EmptyURL",
 			body:          "{\"url\": \"\"}",
-			contentType:   models.TypeApplicationJson,
+			contentType:   models.TypeApplicationJSON,
 			statusCode:    http.StatusBadRequest,
 			expectSuccess: false,
 			description:   "Пустой URL должен вернуть ошибку",
@@ -128,7 +128,7 @@ func TestHandlerPostJson(t *testing.T) {
 		{
 			name:          "WhitespaceURL",
 			body:          "{\"url\": \"\"}",
-			contentType:   models.TypeApplicationJson,
+			contentType:   models.TypeApplicationJSON,
 			statusCode:    http.StatusBadRequest,
 			expectSuccess: false,
 			description:   "URL из пробелов должен вернуть ошибку",
@@ -136,7 +136,7 @@ func TestHandlerPostJson(t *testing.T) {
 		{
 			name:          "MissingKey",
 			body:          "{\"foo\": \"bar\"}",
-			contentType:   models.TypeApplicationJson,
+			contentType:   models.TypeApplicationJSON,
 			statusCode:    http.StatusBadRequest,
 			expectSuccess: false,
 			description:   "JSON без ключа url должен вернуть ошибку",
@@ -152,7 +152,7 @@ func TestHandlerPostJson(t *testing.T) {
 		{
 			name:          "WrongContent",
 			body:          "hello world!",
-			contentType:   models.TypeApplicationJson,
+			contentType:   models.TypeApplicationJSON,
 			statusCode:    http.StatusInternalServerError,
 			expectSuccess: false,
 			description:   "Проблемы при десерилизации должны вернуть ошибку",

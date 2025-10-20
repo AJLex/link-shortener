@@ -132,13 +132,13 @@ func (us *URLShortener) handlerGet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (us *URLShortener) handlerPostJson(w http.ResponseWriter, r *http.Request) {
+func (us *URLShortener) handlerPostJSON(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Only POST method is allowed", http.StatusBadRequest)
 		return
 	}
 
-	if contentType := r.Header.Get("Content-Type"); contentType != models.TypeApplicationJson {
+	if contentType := r.Header.Get("Content-Type"); contentType != models.TypeApplicationJSON {
 		logger.Log.Debug("unsupported request type", zap.String("type", contentType))
 		w.WriteHeader(http.StatusUnsupportedMediaType)
 		return
@@ -165,7 +165,7 @@ func (us *URLShortener) handlerPostJson(w http.ResponseWriter, r *http.Request) 
 		Result: strings.Join([]string{us.baseURL, shortCode}, "/"),
 	}
 
-	w.Header().Set("Content-Type", models.TypeApplicationJson)
+	w.Header().Set("Content-Type", models.TypeApplicationJSON)
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -178,6 +178,6 @@ func (us *URLShortener) mainHandler() chi.Router {
 
 	r.Post("/", us.handlerRoot)
 	r.Get("/{shortCode}", us.handlerGet)
-	r.Post("/api/shorten", us.handlerPostJson)
+	r.Post("/api/shorten", us.handlerPostJSON)
 	return r
 }

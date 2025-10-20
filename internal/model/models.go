@@ -2,7 +2,7 @@ package models
 
 const (
 	TypeSimpleUtterance = "SimpleUtterance"
-	TypeApplicationJson = "application/json"
+	TypeApplicationJSON = "application/json"
 	TypeTextPlain       = "text/plain"
 )
 
