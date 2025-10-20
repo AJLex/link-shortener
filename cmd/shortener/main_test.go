@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/AJLex/link-shortener/internal/config"
+	models "github.com/AJLex/link-shortener/internal/model"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,7 +44,7 @@ func createTestConfig() *config.Config {
 }
 
 // Расширенная версия с проверкой ошибок
-func TestMainHandler_StoreAndRedirect_Comprehensive(t *testing.T) {
+func TestHandlerRoot_StoreAndRedirect_Comprehensive(t *testing.T) {
 	testCases := []struct {
 		name          string
 		originalURL   string
@@ -97,21 +99,87 @@ func TestMainHandler_StoreAndRedirect_Comprehensive(t *testing.T) {
 	}
 }
 
-func TestMainHandler_RootPath_POST(t *testing.T) {
-	cfg := createTestConfig()
-	us := NewURLShortener(cfg.BaseURL)
-	handler := us.mainHandler()
-
-	originalURL := "https://example.com"
-	headers := map[string]string{
-		"Content-Type": "text/plain",
+func TestHandlerPostJson(t *testing.T) {
+	testCases := []struct {
+		name          string
+		body          string
+		method        string
+		contentType   string
+		statusCode    int
+		expectSuccess bool
+		description   string
+	}{
+		{
+			name:          "ValidRequest",
+			body:          "{\"url\": \"https://google.com\"}",
+			contentType:   models.TypeApplicationJson,
+			statusCode:    http.StatusCreated,
+			expectSuccess: true,
+			description:   "Валидный HTTPS URL",
+		},
+		{
+			name:          "EmptyURL",
+			body:          "{\"url\": \"\"}",
+			contentType:   models.TypeApplicationJson,
+			statusCode:    http.StatusBadRequest,
+			expectSuccess: false,
+			description:   "Пустой URL должен вернуть ошибку",
+		},
+		{
+			name:          "WhitespaceURL",
+			body:          "{\"url\": \"\"}",
+			contentType:   models.TypeApplicationJson,
+			statusCode:    http.StatusBadRequest,
+			expectSuccess: false,
+			description:   "URL из пробелов должен вернуть ошибку",
+		},
+		{
+			name:          "MissingKey",
+			body:          "{\"foo\": \"bar\"}",
+			contentType:   models.TypeApplicationJson,
+			statusCode:    http.StatusBadRequest,
+			expectSuccess: false,
+			description:   "JSON без ключа url должен вернуть ошибку",
+		},
+		{
+			name:          "UnsupportedMediaType",
+			body:          "{\"url\": \"https://google.com\"}",
+			contentType:   models.TypeTextPlain,
+			statusCode:    http.StatusUnsupportedMediaType,
+			expectSuccess: false,
+			description:   "Неправильный тип передаваемого контента",
+		},
+		{
+			name:          "WrongContent",
+			body:          "hello world!",
+			contentType:   models.TypeApplicationJson,
+			statusCode:    http.StatusInternalServerError,
+			expectSuccess: false,
+			description:   "Проблемы при десерилизации должны вернуть ошибку",
+		},
 	}
 
-	resp, body := testRequest(t, handler, "POST", "/", bytes.NewBufferString(originalURL), headers)
-	defer resp.Body.Close()
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := createTestConfig()
+			us := NewURLShortener(cfg.BaseURL)
+			handler := us.mainHandler()
+			fmt.Println(tc.contentType, tc.body)
 
-	assert.Equal(t, http.StatusCreated, resp.StatusCode)
-	assert.Contains(t, body, cfg.BaseURL+"/")
+			headers := map[string]string{
+				"Content-Type": tc.contentType,
+			}
+
+			resp, _ := testRequest(t, handler, http.MethodPost, "/api/shorten", bytes.NewBufferString(tc.body), headers)
+			defer resp.Body.Close()
+
+			if tc.expectSuccess {
+				assert.Equal(t, tc.statusCode, resp.StatusCode, tc.description)
+			} else {
+				assert.Equal(t, tc.statusCode, resp.StatusCode, tc.description)
+			}
+		})
+	}
 }
 
 func TestURLShortener_StoreAndRetrieve(t *testing.T) {
@@ -153,6 +221,22 @@ func TestMainHandler_ShortURL_InvalidMethod(t *testing.T) {
 	for _, method := range invalidMethods {
 		t.Run(method, func(t *testing.T) {
 			resp, _ := testRequest(t, handler, method, "/abc", nil, nil)
+			defer resp.Body.Close()
+			assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
+		})
+	}
+}
+
+func TestMainHandler_PostJson_InvalidMethod(t *testing.T) {
+	cfg := createTestConfig()
+	us := NewURLShortener(cfg.BaseURL)
+	handler := us.mainHandler()
+
+	invalidMethods := []string{"GET", "PUT", "DELETE", "PATCH"}
+
+	for _, method := range invalidMethods {
+		t.Run(method, func(t *testing.T) {
+			resp, _ := testRequest(t, handler, method, "/api/shorten", nil, nil)
 			defer resp.Body.Close()
 			assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
 		})

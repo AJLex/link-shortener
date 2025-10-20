@@ -1,0 +1,17 @@
+package models
+
+const (
+	TypeSimpleUtterance = "SimpleUtterance"
+	TypeApplicationJson = "application/json"
+	TypeTextPlain       = "text/plain"
+)
+
+// ShortenRequest модель для десериализации входящего запроса
+type ShortenRequest struct {
+	URL string `json:"url"`
+}
+
+// ShortenResponse модель для сериализации исходящего ответа
+type ShortenResponse struct {
+	Result string `json:"result"`
+}
