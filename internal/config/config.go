@@ -11,7 +11,7 @@ import (
 const (
 	defaultServerAddress   = ":8080"
 	defaultBaseURL         = "http://localhost:8080"
-	defaultFileStoragePath = "/temp/shortener"
+	defaultFileStoragePath = "shortener"
 )
 
 // EnvGetter интерфейс для получения переменных окружения
