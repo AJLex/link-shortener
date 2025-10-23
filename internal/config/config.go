@@ -9,8 +9,9 @@ import (
 
 // Константы для значений по умолчанию
 const (
-	defaultServerAddress = ":8080"
-	defaultBaseURL       = "http://localhost:8080"
+	defaultServerAddress   = ":8080"
+	defaultBaseURL         = "http://localhost:8080"
+	defaultFileStoragePath = "/temp/shortener"
 )
 
 // EnvGetter интерфейс для получения переменных окружения
@@ -26,8 +27,9 @@ func (r RealEnvGetter) Get(key string) string {
 }
 
 type Config struct {
-	ServerAddress string
-	BaseURL       string
+	ServerAddress   string
+	BaseURL         string
+	FileStoragePath string
 }
 
 func getConfigValue(envGetter EnvGetter, envKey, flagValue string) string {
@@ -49,11 +51,13 @@ func LoadConfigWithEnv(envGetter EnvGetter) Config {
 	// Определяем флаги командной строки
 	serverAddressFlag := flag.String("a", defaultServerAddress, "Server address")
 	baseURLFlag := flag.String("b", defaultBaseURL, "Base URL")
+	fileStoragePathLFlag := flag.String("f", defaultFileStoragePath, "File storage path")
 	flag.Parse()
 
 	cfg := Config{
-		ServerAddress: getConfigValue(envGetter, "SERVER_ADDRESS", *serverAddressFlag),
-		BaseURL:       getConfigValue(envGetter, "BASE_URL", *baseURLFlag),
+		ServerAddress:   getConfigValue(envGetter, "SERVER_ADDRESS", *serverAddressFlag),
+		BaseURL:         getConfigValue(envGetter, "BASE_URL", *baseURLFlag),
+		FileStoragePath: getConfigValue(envGetter, "FILE_STORAGE_PATH", *fileStoragePathLFlag),
 	}
 
 	// Нормализуем BaseURL (убираем trailing slash)

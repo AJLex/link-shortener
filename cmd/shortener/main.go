@@ -4,15 +4,18 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/AJLex/link-shortener/internal/config"
 	"github.com/AJLex/link-shortener/internal/gzip"
 	"github.com/AJLex/link-shortener/internal/logger"
 	models "github.com/AJLex/link-shortener/internal/model"
+	"github.com/AJLex/link-shortener/internal/storage"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
@@ -29,13 +32,62 @@ type URLShortener struct {
 	mu      sync.RWMutex
 	data    map[string]string // shortURL -> originalURL
 	baseURL string
+	storage *storage.FileStorage // добавляем хранилище
 }
 
-func NewURLShortener(baseURL string) *URLShortener {
-	return &URLShortener{
+func NewURLShortener(baseURL string, storage *storage.FileStorage) *URLShortener {
+	shortener := &URLShortener{
 		data:    make(map[string]string),
 		baseURL: baseURL,
+		storage: storage,
 	}
+
+	// Загружаем данные из хранилища
+	shortener.loadFromStorage()
+	return shortener
+}
+
+func (us *URLShortener) loadFromStorage() error {
+	if us.storage == nil {
+		return nil
+	}
+
+	// Загружаем данные из файла
+	if err := us.storage.Load(); err != nil {
+		return err
+	}
+
+	// Преобразуем загруженные данные в map
+	us.mu.Lock()
+	defer us.mu.Unlock()
+
+	// Предполагая, что у FileStorage есть метод GetEntries()
+	entries := us.storage.GetEntries()
+	for _, entry := range entries {
+		us.data[entry.ShortURL] = entry.OriginalURL
+	}
+
+	return nil
+}
+
+// SaveToStorage сохраняет URL в хранилище
+func (us *URLShortener) SaveToStorage(shortURL, originalURL string) error {
+	if us.storage == nil {
+		return nil
+	}
+
+	// Генерируем ID (можно использовать shortURL или что-то другое)
+	entry := models.URLEntry{
+		UUID:        generateID(),
+		ShortURL:    shortURL,
+		OriginalURL: originalURL,
+	}
+
+	return us.storage.Save(entry)
+}
+
+func generateID() string {
+	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
 
 // GenerateShortURL создает короткий код из хеша
@@ -51,7 +103,7 @@ func (us *URLShortener) GenerateUniqueShortURL() string {
 }
 
 // Store сохраняет ссылку и возвращает короткий код
-func (us *URLShortener) Store(originalURL string) string {
+func (us *URLShortener) Store(originalURL string) (string, error) {
 	us.mu.Lock()
 	defer us.mu.Unlock()
 
@@ -59,7 +111,10 @@ func (us *URLShortener) Store(originalURL string) string {
 	shortCode := us.GenerateUniqueShortURL()
 
 	us.data[shortCode] = originalURL
-	return shortCode
+
+	err := us.SaveToStorage(shortCode, originalURL)
+
+	return shortCode, err
 }
 
 // Retrieve получает оригинальную ссылку по короткому коду
@@ -97,7 +152,12 @@ func (us *URLShortener) handlerRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shortCode := us.Store(originalURL)
+	shortCode, err := us.Store(originalURL)
+	if err != nil {
+		logger.Log.Info("cannot store", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusCreated)
@@ -146,7 +206,13 @@ func (us *URLShortener) handlerPostJSON(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	shortCode := us.Store(originalURL)
+	shortCode, err := us.Store(originalURL)
+
+	if err != nil {
+		logger.Log.Info("cannot store", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 
 	resp := models.ShortenResponse{
 		Result: strings.Join([]string{us.baseURL, shortCode}, "/"),
@@ -172,7 +238,12 @@ func (us *URLShortener) mainHandler() chi.Router {
 // функция run будет полезна при инициализации зависимостей сервера перед запуском
 func run() error {
 	cfg := config.LoadConfig()
-	us := NewURLShortener(cfg.BaseURL)
+
+	// Создаем файловое хранилище
+	fileStorage := storage.NewFileStorage(cfg.FileStoragePath)
+
+	// Создаем shortener с хранилищем
+	us := NewURLShortener(cfg.BaseURL, fileStorage)
 
 	if err := logger.Initialize(zap.InfoLevel.String()); err != nil {
 		return err

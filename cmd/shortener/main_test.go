@@ -6,10 +6,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/AJLex/link-shortener/internal/config"
 	models "github.com/AJLex/link-shortener/internal/model"
+	"github.com/AJLex/link-shortener/internal/storage"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,8 +40,9 @@ func testRequest(t *testing.T, handler http.Handler, method, path string, body i
 // Вспомогательная функция для создания тестового конфига
 func createTestConfig() *config.Config {
 	return &config.Config{
-		ServerAddress: "localhost:8080",
-		BaseURL:       "http://localhost:8080",
+		ServerAddress:   "localhost:8080",
+		BaseURL:         "http://localhost:8080",
+		FileStoragePath: "/temp",
 	}
 }
 
@@ -80,7 +83,14 @@ func TestHandlerRoot_StoreAndRedirect_Comprehensive(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := createTestConfig()
-			us := NewURLShortener(cfg.BaseURL)
+			tmpFile, err := os.CreateTemp("", "test-*.txt")
+			if err != nil {
+				t.Fatalf("Failed to create temp file: %v", err)
+			}
+			defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
+			defer tmpFile.Close()
+			fileStorage := storage.NewFileStorage(tmpFile.Name())
+			us := NewURLShortener(cfg.BaseURL, fileStorage)
 			handler := us.mainHandler()
 
 			headers := map[string]string{
@@ -162,7 +172,14 @@ func TestHandlerPostJson(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := createTestConfig()
-			us := NewURLShortener(cfg.BaseURL)
+			tmpFile, err := os.CreateTemp("", "test-*.txt")
+			if err != nil {
+				t.Fatalf("Failed to create temp file: %v", err)
+			}
+			defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
+			defer tmpFile.Close()
+			fileStorage := storage.NewFileStorage(tmpFile.Name())
+			us := NewURLShortener(cfg.BaseURL, fileStorage)
 			handler := us.mainHandler()
 			fmt.Println(tc.contentType, tc.body)
 
@@ -184,10 +201,17 @@ func TestHandlerPostJson(t *testing.T) {
 
 func TestURLShortener_StoreAndRetrieve(t *testing.T) {
 	cfg := createTestConfig()
-	us := NewURLShortener(cfg.BaseURL)
+	tmpFile, err := os.CreateTemp("", "test-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
+	defer tmpFile.Close()
+	fileStorage := storage.NewFileStorage(tmpFile.Name())
+	us := NewURLShortener(cfg.BaseURL, fileStorage)
 	originalURL := "https://example.com"
 
-	shortCode := us.Store(originalURL)
+	shortCode, _ := us.Store(originalURL)
 	require.NotEmpty(t, shortCode)
 
 	retrievedURL, exists := us.Retrieve(shortCode)
@@ -197,7 +221,14 @@ func TestURLShortener_StoreAndRetrieve(t *testing.T) {
 
 func TestMainHandler_RootPath_InvalidMethod(t *testing.T) {
 	cfg := createTestConfig()
-	us := NewURLShortener(cfg.BaseURL)
+	tmpFile, err := os.CreateTemp("", "test-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
+	defer tmpFile.Close()
+	fileStorage := storage.NewFileStorage(tmpFile.Name())
+	us := NewURLShortener(cfg.BaseURL, fileStorage)
 	handler := us.mainHandler()
 
 	invalidMethods := []string{"GET", "PUT", "DELETE", "PATCH"}
@@ -213,7 +244,14 @@ func TestMainHandler_RootPath_InvalidMethod(t *testing.T) {
 
 func TestMainHandler_ShortURL_InvalidMethod(t *testing.T) {
 	cfg := createTestConfig()
-	us := NewURLShortener(cfg.BaseURL)
+	tmpFile, err := os.CreateTemp("", "test-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
+	defer tmpFile.Close()
+	fileStorage := storage.NewFileStorage(tmpFile.Name())
+	us := NewURLShortener(cfg.BaseURL, fileStorage)
 	handler := us.mainHandler()
 
 	invalidMethods := []string{"POST", "PUT", "DELETE", "PATCH"}
@@ -229,7 +267,14 @@ func TestMainHandler_ShortURL_InvalidMethod(t *testing.T) {
 
 func TestMainHandler_PostJson_InvalidMethod(t *testing.T) {
 	cfg := createTestConfig()
-	us := NewURLShortener(cfg.BaseURL)
+	tmpFile, err := os.CreateTemp("", "test-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
+	defer tmpFile.Close()
+	fileStorage := storage.NewFileStorage(tmpFile.Name())
+	us := NewURLShortener(cfg.BaseURL, fileStorage)
 	handler := us.mainHandler()
 
 	invalidMethods := []string{"GET", "PUT", "DELETE", "PATCH"}
@@ -245,7 +290,14 @@ func TestMainHandler_PostJson_InvalidMethod(t *testing.T) {
 
 func TestMainHandler_NotFound(t *testing.T) {
 	cfg := createTestConfig()
-	us := NewURLShortener(cfg.BaseURL)
+	tmpFile, err := os.CreateTemp("", "test-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
+	defer tmpFile.Close()
+	fileStorage := storage.NewFileStorage(tmpFile.Name())
+	us := NewURLShortener(cfg.BaseURL, fileStorage)
 	handler := us.mainHandler()
 
 	resp, _ := testRequest(t, handler, "GET", "/nonexistent", nil, nil)
@@ -256,7 +308,14 @@ func TestMainHandler_NotFound(t *testing.T) {
 
 func TestMainHandler_InvalidContentType(t *testing.T) {
 	cfg := createTestConfig()
-	us := NewURLShortener(cfg.BaseURL)
+	tmpFile, err := os.CreateTemp("", "test-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
+	defer tmpFile.Close()
+	fileStorage := storage.NewFileStorage(tmpFile.Name())
+	us := NewURLShortener(cfg.BaseURL, fileStorage)
 	handler := us.mainHandler()
 
 	headers := map[string]string{
@@ -271,7 +330,14 @@ func TestMainHandler_InvalidContentType(t *testing.T) {
 
 func TestMainHandler_EmptyBody(t *testing.T) {
 	cfg := createTestConfig()
-	us := NewURLShortener(cfg.BaseURL)
+	tmpFile, err := os.CreateTemp("", "test-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
+	defer tmpFile.Close()
+	fileStorage := storage.NewFileStorage(tmpFile.Name())
+	us := NewURLShortener(cfg.BaseURL, fileStorage)
 	handler := us.mainHandler()
 
 	headers := map[string]string{
@@ -286,7 +352,14 @@ func TestMainHandler_EmptyBody(t *testing.T) {
 
 func TestURLShortener_RetrieveNonExistent(t *testing.T) {
 	cfg := createTestConfig()
-	us := NewURLShortener(cfg.BaseURL)
+	tmpFile, err := os.CreateTemp("", "test-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
+	defer tmpFile.Close()
+	fileStorage := storage.NewFileStorage(tmpFile.Name())
+	us := NewURLShortener(cfg.BaseURL, fileStorage)
 
 	retrievedURL, exists := us.Retrieve("nonexistent")
 	assert.False(t, exists)
@@ -295,8 +368,14 @@ func TestURLShortener_RetrieveNonExistent(t *testing.T) {
 
 func TestGenerateUniqueShortURL_Uniqueness(t *testing.T) {
 	cfg := createTestConfig()
-	us := NewURLShortener(cfg.BaseURL)
-
+	tmpFile, err := os.CreateTemp("", "test-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
+	defer tmpFile.Close()
+	fileStorage := storage.NewFileStorage(tmpFile.Name())
+	us := NewURLShortener(cfg.BaseURL, fileStorage)
 	codes := make(map[string]bool)
 	const numCodes = 10
 
