@@ -10,12 +10,20 @@ import (
 	"sync"
 
 	"github.com/AJLex/link-shortener/internal/config"
+	"github.com/AJLex/link-shortener/internal/gzip"
 	"github.com/AJLex/link-shortener/internal/logger"
 	models "github.com/AJLex/link-shortener/internal/model"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
+
+// функция main вызывается автоматически при запуске приложения
+func main() {
+	if err := run(); err != nil {
+		panic(err)
+	}
+}
 
 type URLShortener struct {
 	mu      sync.RWMutex
@@ -61,27 +69,6 @@ func (us *URLShortener) Retrieve(shortCode string) (string, bool) {
 
 	longURL, exists := us.data[shortCode]
 	return longURL, exists
-}
-
-// функция main вызывается автоматически при запуске приложения
-func main() {
-	if err := run(); err != nil {
-		panic(err)
-	}
-}
-
-// функция run будет полезна при инициализации зависимостей сервера перед запуском
-func run() error {
-	cfg := config.LoadConfig()
-	us := NewURLShortener(cfg.BaseURL)
-
-	if err := logger.Initialize(zap.InfoLevel.String()); err != nil {
-		return err
-	}
-
-	logger.Log.Info("Running server", zap.String("address", cfg.ServerAddress))
-
-	return http.ListenAndServe(cfg.ServerAddress, logger.RequestLogger(us.mainHandler()))
 }
 
 func (us *URLShortener) handlerRoot(w http.ResponseWriter, r *http.Request) {
@@ -180,4 +167,18 @@ func (us *URLShortener) mainHandler() chi.Router {
 	r.Get("/{shortCode}", us.handlerGet)
 	r.Post("/api/shorten", us.handlerPostJSON)
 	return r
+}
+
+// функция run будет полезна при инициализации зависимостей сервера перед запуском
+func run() error {
+	cfg := config.LoadConfig()
+	us := NewURLShortener(cfg.BaseURL)
+
+	if err := logger.Initialize(zap.InfoLevel.String()); err != nil {
+		return err
+	}
+
+	logger.Log.Info("Running server", zap.String("address", cfg.ServerAddress))
+
+	return http.ListenAndServe(cfg.ServerAddress, logger.RequestLogger(gzip.GzipMiddleware(us.mainHandler())))
 }

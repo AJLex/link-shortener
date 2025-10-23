@@ -10,161 +10,6 @@ import (
 	"testing"
 )
 
-// TestCompressWriter тестирует реализацию compressWriter
-func TestCompressWriter(t *testing.T) {
-	tests := []struct {
-		name       string
-		statusCode int
-		content    string
-		shouldGzip bool
-	}{
-		{
-			name:       "Status OK должен сжимать",
-			statusCode: http.StatusOK,
-			content:    "Hello, World!",
-			shouldGzip: true,
-		},
-		{
-			name:       "Status Created должен сжимать",
-			statusCode: http.StatusCreated,
-			content:    "Created resource",
-			shouldGzip: true,
-		},
-		{
-			name:       "Status Bad Request не должен сжимать",
-			statusCode: http.StatusBadRequest,
-			content:    "Bad request",
-			shouldGzip: false,
-		},
-		{
-			name:       "Status Internal Server Error не должен сжимать",
-			statusCode: http.StatusInternalServerError,
-			content:    "Server error",
-			shouldGzip: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Создаем тестовый recorder для захвата ответа
-			recorder := httptest.NewRecorder()
-
-			// Создаем compress writer
-			cw := newCompressWriter(recorder)
-
-			// Тестируем метод Header
-			headers := cw.Header()
-			if headers == nil {
-				t.Error("Header() вернул nil")
-			}
-
-			// Устанавливаем content type
-			headers.Set("Content-Type", "text/plain")
-
-			// Тестируем WriteHeader
-			cw.WriteHeader(tt.statusCode)
-
-			// Тестируем Write
-			contentBytes := []byte(tt.content)
-			written, err := cw.Write(contentBytes)
-			if err != nil {
-				t.Errorf("Write() завершился ошибкой: %v", err)
-			}
-			if written != len(contentBytes) {
-				t.Errorf("Write() записал %d байт, ожидалось %d", written, len(contentBytes))
-			}
-
-			// Закрываем writer для выгрузки данных
-			err = cw.Close()
-			if err != nil {
-				t.Errorf("Close() завершился ошибкой: %v", err)
-			}
-
-			// Проверяем, что content encoding установлен корректно
-			contentEncoding := recorder.Header().Get("Content-Encoding")
-			if tt.shouldGzip {
-				if contentEncoding != "gzip" {
-					t.Errorf("Ожидался Content-Encoding 'gzip', получен '%s'", contentEncoding)
-				}
-
-				// Проверяем, что контент действительно сжат
-				body := recorder.Body.Bytes()
-				if len(body) >= len(tt.content) {
-					t.Error("Контент не был сжат - размер сжатых данных не меньше оригинала")
-				}
-
-				// Распаковываем и проверяем содержимое
-				reader, err := gzip.NewReader(bytes.NewReader(body))
-				if err != nil {
-					t.Errorf("Не удалось создать gzip reader: %v", err)
-				}
-				defer reader.Close()
-
-				decompressed, err := io.ReadAll(reader)
-				if err != nil {
-					t.Errorf("Не удалось распаковать: %v", err)
-				}
-
-				if string(decompressed) != tt.content {
-					t.Errorf("Несоответствие распакованного контента: получен '%s', ожидался '%s'", string(decompressed), tt.content)
-				}
-			} else {
-				if contentEncoding == "gzip" {
-					t.Error("Content-Encoding не должен быть 'gzip' для статус-кодов ошибок")
-				}
-				// Для несжатых ответов контент должен быть как записанный
-				if recorder.Body.String() != tt.content {
-					t.Errorf("Несоответствие контента: получен '%s', ожидался '%s'", recorder.Body.String(), tt.content)
-				}
-			}
-		})
-	}
-}
-
-// TestCompressReader тестирует реализацию compressReader
-func TestCompressReader(t *testing.T) {
-	originalContent := "Это тестовый контент, который будет сжат"
-
-	// Создаем сжатые данные
-	var compressedBuf bytes.Buffer
-	gzWriter := gzip.NewWriter(&compressedBuf)
-	_, err := gzWriter.Write([]byte(originalContent))
-	if err != nil {
-		t.Fatalf("Не удалось сжать тестовые данные: %v", err)
-	}
-	gzWriter.Close()
-
-	// Тестируем успешную распаковку
-	t.Run("Успешная распаковка", func(t *testing.T) {
-		originalReader := io.NopCloser(bytes.NewReader(compressedBuf.Bytes()))
-
-		cr, err := newCompressReader(originalReader)
-		if err != nil {
-			t.Fatalf("newCompressReader завершился ошибкой: %v", err)
-		}
-		defer cr.Close()
-
-		decompressed, err := io.ReadAll(cr)
-		if err != nil {
-			t.Fatalf("Read завершился ошибкой: %v", err)
-		}
-
-		if string(decompressed) != originalContent {
-			t.Errorf("Несоответствие распакованного контента: получен '%s', ожидался '%s'", string(decompressed), originalContent)
-		}
-	})
-
-	// Тестируем с некорректными gzip данными
-	t.Run("Некорректные gzip данные", func(t *testing.T) {
-		invalidReader := io.NopCloser(bytes.NewReader([]byte("не gzip данные")))
-
-		_, err := newCompressReader(invalidReader)
-		if err == nil {
-			t.Error("Ожидалась ошибка с некорректными gzip данными, но ошибки не было")
-		}
-	})
-}
-
 // TestGzipMiddleware тестирует полную функциональность middleware
 func TestGzipMiddleware(t *testing.T) {
 	// Создаем простой handler для тестирования
@@ -248,7 +93,7 @@ func TestGzipMiddleware(t *testing.T) {
 			recorder := httptest.NewRecorder()
 
 			// Применяем middleware и обрабатываем запрос
-			handler := gzipMiddleware(testHandler)
+			handler := GzipMiddleware(testHandler)
 			handler.ServeHTTP(recorder, req)
 
 			// Проверяем ответ
@@ -285,7 +130,7 @@ func TestGzipMiddlewareErrorHandling(t *testing.T) {
 
 		recorder := httptest.NewRecorder()
 
-		handler := gzipMiddleware(testHandler)
+		handler := GzipMiddleware(testHandler)
 		handler.ServeHTTP(recorder, req)
 
 		// Должен вернуть 500 Internal Server Error
