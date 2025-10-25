@@ -24,3 +24,6 @@ vendor/
 
 #IDEs workspace
 *.code-workspace
+
+#Mac OS files
+*.DS_Store
