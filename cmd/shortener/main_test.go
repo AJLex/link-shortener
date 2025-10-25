@@ -163,7 +163,7 @@ func TestHandlerPostJson(t *testing.T) {
 			name:          "WrongContent",
 			body:          "hello world!",
 			contentType:   models.TypeApplicationJSON,
-			statusCode:    http.StatusInternalServerError,
+			statusCode:    http.StatusBadRequest,
 			expectSuccess: false,
 			description:   "Проблемы при десерилизации должны вернуть ошибку",
 		},

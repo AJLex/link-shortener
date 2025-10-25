@@ -127,11 +127,6 @@ func (us *URLShortener) Retrieve(shortCode string) (string, bool) {
 }
 
 func (us *URLShortener) handlerRoot(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Only POST method is allowed", http.StatusBadRequest)
-		return
-	}
-
 	contentType := r.Header.Get("Content-Type")
 	if contentType != models.TypeTextPlain {
 		http.Error(w, "Content-Type must be text/plain", http.StatusBadRequest)
@@ -165,11 +160,6 @@ func (us *URLShortener) handlerRoot(w http.ResponseWriter, r *http.Request) {
 }
 
 func (us *URLShortener) handlerGet(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Only GET method is allowed", http.StatusBadRequest)
-		return
-	}
-
 	shortCode := r.URL.Path[1:]
 	if original, exists := us.Retrieve(shortCode); exists {
 		w.Header().Set("Location", original)
@@ -180,11 +170,6 @@ func (us *URLShortener) handlerGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (us *URLShortener) handlerPostJSON(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Only POST method is allowed", http.StatusBadRequest)
-		return
-	}
-
 	if contentType := r.Header.Get("Content-Type"); contentType != models.TypeApplicationJSON {
 		logger.Log.Debug("unsupported request type", zap.String("type", contentType))
 		w.WriteHeader(http.StatusUnsupportedMediaType)
@@ -195,7 +180,7 @@ func (us *URLShortener) handlerPostJSON(w http.ResponseWriter, r *http.Request) 
 	dec := json.NewDecoder(r.Body)
 	if err := dec.Decode(&req); err != nil {
 		logger.Log.Debug("cannot decode request JSON body", zap.Error(err))
-		w.WriteHeader(http.StatusInternalServerError)
+		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
