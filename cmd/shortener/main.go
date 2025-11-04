@@ -33,13 +33,15 @@ type URLShortener struct {
 	data    map[string]string // shortURL -> originalURL
 	baseURL string
 	storage *storage.FileStorage // добавляем хранилище
+	db      storage.DBInterface
 }
 
-func NewURLShortener(baseURL string, storage *storage.FileStorage) *URLShortener {
+func NewURLShortener(baseURL string, storage *storage.FileStorage, db storage.DBInterface) *URLShortener {
 	shortener := &URLShortener{
 		data:    make(map[string]string),
 		baseURL: baseURL,
 		storage: storage,
+		db:      db,
 	}
 
 	// Загружаем данные из хранилища
@@ -159,7 +161,7 @@ func (us *URLShortener) handlerRoot(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(strings.Join([]string{us.baseURL, shortCode}, "/")))
 }
 
-func (us *URLShortener) handlerGet(w http.ResponseWriter, r *http.Request) {
+func (us *URLShortener) redirectToOriginal(w http.ResponseWriter, r *http.Request) {
 	shortCode := r.URL.Path[1:]
 	if original, exists := us.Retrieve(shortCode); exists {
 		w.Header().Set("Location", original)
@@ -167,6 +169,14 @@ func (us *URLShortener) handlerGet(w http.ResponseWriter, r *http.Request) {
 	} else {
 		http.Error(w, "Not found", http.StatusBadRequest)
 	}
+}
+
+func (us *URLShortener) DBPing(w http.ResponseWriter, r *http.Request) {
+	if err := storage.PingDB(us.db); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func (us *URLShortener) handlerPostJSON(w http.ResponseWriter, r *http.Request) {
@@ -214,8 +224,10 @@ func (us *URLShortener) handlerPostJSON(w http.ResponseWriter, r *http.Request) 
 func (us *URLShortener) mainHandler() chi.Router {
 	r := chi.NewRouter()
 
+	r.Get("/{shortCode}", us.redirectToOriginal)
+	r.Get("/ping", us.DBPing)
+
 	r.Post("/", us.handlerRoot)
-	r.Get("/{shortCode}", us.handlerGet)
 	r.Post("/api/shorten", us.handlerPostJSON)
 	return r
 }
@@ -224,11 +236,19 @@ func (us *URLShortener) mainHandler() chi.Router {
 func run() error {
 	cfg := config.LoadConfig()
 
+	db, err := storage.NewConnection(cfg)
+
+	if err != nil {
+		return err
+	}
+
+	defer db.Close() // закрываем в main
+
 	// Создаем файловое хранилище
 	fileStorage := storage.NewFileStorage(cfg.FileStoragePath)
 
 	// Создаем shortener с хранилищем
-	us := NewURLShortener(cfg.BaseURL, fileStorage)
+	us := NewURLShortener(cfg.BaseURL, fileStorage, db)
 
 	if err := logger.Initialize(zap.InfoLevel.String()); err != nil {
 		return err

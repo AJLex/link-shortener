@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,9 +13,11 @@ import (
 	"github.com/AJLex/link-shortener/internal/config"
 	models "github.com/AJLex/link-shortener/internal/model"
 	"github.com/AJLex/link-shortener/internal/storage"
+	"github.com/AJLex/link-shortener/internal/storage/mock"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func testRequest(t *testing.T, handler http.Handler, method, path string, body io.Reader, headers map[string]string) (*http.Response, string) {
@@ -82,6 +85,10 @@ func TestHandlerRoot_StoreAndRedirect_Comprehensive(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockDB := mock.NewMockDBInterface(ctrl)
+
 			cfg := createTestConfig()
 			tmpFile, err := os.CreateTemp("", "test-*.txt")
 			if err != nil {
@@ -90,14 +97,14 @@ func TestHandlerRoot_StoreAndRedirect_Comprehensive(t *testing.T) {
 			defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
 			defer tmpFile.Close()
 			fileStorage := storage.NewFileStorage(tmpFile.Name())
-			us := NewURLShortener(cfg.BaseURL, fileStorage)
+			us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
 			handler := us.mainHandler()
 
 			headers := map[string]string{
 				"Content-Type": "text/plain",
 			}
 
-			resp, _ := testRequest(t, handler, "POST", "/", bytes.NewBufferString(tc.originalURL), headers)
+			resp, _ := testRequest(t, handler, http.MethodPost, "/", bytes.NewBufferString(tc.originalURL), headers)
 			defer resp.Body.Close()
 
 			if tc.expectSuccess {
@@ -171,6 +178,10 @@ func TestHandlerPostJson(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockDB := mock.NewMockDBInterface(ctrl)
+
 			cfg := createTestConfig()
 			tmpFile, err := os.CreateTemp("", "test-*.txt")
 			if err != nil {
@@ -179,7 +190,7 @@ func TestHandlerPostJson(t *testing.T) {
 			defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
 			defer tmpFile.Close()
 			fileStorage := storage.NewFileStorage(tmpFile.Name())
-			us := NewURLShortener(cfg.BaseURL, fileStorage)
+			us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
 			handler := us.mainHandler()
 			fmt.Println(tc.contentType, tc.body)
 
@@ -200,6 +211,10 @@ func TestHandlerPostJson(t *testing.T) {
 }
 
 func TestURLShortener_StoreAndRetrieve(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock.NewMockDBInterface(ctrl)
+
 	cfg := createTestConfig()
 	tmpFile, err := os.CreateTemp("", "test-*.txt")
 	if err != nil {
@@ -208,7 +223,7 @@ func TestURLShortener_StoreAndRetrieve(t *testing.T) {
 	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
 	defer tmpFile.Close()
 	fileStorage := storage.NewFileStorage(tmpFile.Name())
-	us := NewURLShortener(cfg.BaseURL, fileStorage)
+	us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
 	originalURL := "https://example.com"
 
 	shortCode, _ := us.Store(originalURL)
@@ -220,6 +235,10 @@ func TestURLShortener_StoreAndRetrieve(t *testing.T) {
 }
 
 func TestMainHandler_RootPath_InvalidMethod(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock.NewMockDBInterface(ctrl)
+
 	cfg := createTestConfig()
 	tmpFile, err := os.CreateTemp("", "test-*.txt")
 	if err != nil {
@@ -228,7 +247,7 @@ func TestMainHandler_RootPath_InvalidMethod(t *testing.T) {
 	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
 	defer tmpFile.Close()
 	fileStorage := storage.NewFileStorage(tmpFile.Name())
-	us := NewURLShortener(cfg.BaseURL, fileStorage)
+	us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
 	handler := us.mainHandler()
 
 	invalidMethods := []string{"GET", "PUT", "DELETE", "PATCH"}
@@ -243,6 +262,10 @@ func TestMainHandler_RootPath_InvalidMethod(t *testing.T) {
 }
 
 func TestMainHandler_ShortURL_InvalidMethod(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock.NewMockDBInterface(ctrl)
+
 	cfg := createTestConfig()
 	tmpFile, err := os.CreateTemp("", "test-*.txt")
 	if err != nil {
@@ -251,7 +274,7 @@ func TestMainHandler_ShortURL_InvalidMethod(t *testing.T) {
 	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
 	defer tmpFile.Close()
 	fileStorage := storage.NewFileStorage(tmpFile.Name())
-	us := NewURLShortener(cfg.BaseURL, fileStorage)
+	us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
 	handler := us.mainHandler()
 
 	invalidMethods := []string{"POST", "PUT", "DELETE", "PATCH"}
@@ -266,6 +289,10 @@ func TestMainHandler_ShortURL_InvalidMethod(t *testing.T) {
 }
 
 func TestMainHandler_PostJson_InvalidMethod(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock.NewMockDBInterface(ctrl)
+
 	cfg := createTestConfig()
 	tmpFile, err := os.CreateTemp("", "test-*.txt")
 	if err != nil {
@@ -274,7 +301,7 @@ func TestMainHandler_PostJson_InvalidMethod(t *testing.T) {
 	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
 	defer tmpFile.Close()
 	fileStorage := storage.NewFileStorage(tmpFile.Name())
-	us := NewURLShortener(cfg.BaseURL, fileStorage)
+	us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
 	handler := us.mainHandler()
 
 	invalidMethods := []string{"GET", "PUT", "DELETE", "PATCH"}
@@ -289,6 +316,10 @@ func TestMainHandler_PostJson_InvalidMethod(t *testing.T) {
 }
 
 func TestMainHandler_NotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock.NewMockDBInterface(ctrl)
+
 	cfg := createTestConfig()
 	tmpFile, err := os.CreateTemp("", "test-*.txt")
 	if err != nil {
@@ -297,7 +328,7 @@ func TestMainHandler_NotFound(t *testing.T) {
 	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
 	defer tmpFile.Close()
 	fileStorage := storage.NewFileStorage(tmpFile.Name())
-	us := NewURLShortener(cfg.BaseURL, fileStorage)
+	us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
 	handler := us.mainHandler()
 
 	resp, _ := testRequest(t, handler, "GET", "/nonexistent", nil, nil)
@@ -307,6 +338,10 @@ func TestMainHandler_NotFound(t *testing.T) {
 }
 
 func TestMainHandler_InvalidContentType(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock.NewMockDBInterface(ctrl)
+
 	cfg := createTestConfig()
 	tmpFile, err := os.CreateTemp("", "test-*.txt")
 	if err != nil {
@@ -315,7 +350,7 @@ func TestMainHandler_InvalidContentType(t *testing.T) {
 	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
 	defer tmpFile.Close()
 	fileStorage := storage.NewFileStorage(tmpFile.Name())
-	us := NewURLShortener(cfg.BaseURL, fileStorage)
+	us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
 	handler := us.mainHandler()
 
 	headers := map[string]string{
@@ -329,6 +364,10 @@ func TestMainHandler_InvalidContentType(t *testing.T) {
 }
 
 func TestMainHandler_EmptyBody(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock.NewMockDBInterface(ctrl)
+
 	cfg := createTestConfig()
 	tmpFile, err := os.CreateTemp("", "test-*.txt")
 	if err != nil {
@@ -337,7 +376,7 @@ func TestMainHandler_EmptyBody(t *testing.T) {
 	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
 	defer tmpFile.Close()
 	fileStorage := storage.NewFileStorage(tmpFile.Name())
-	us := NewURLShortener(cfg.BaseURL, fileStorage)
+	us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
 	handler := us.mainHandler()
 
 	headers := map[string]string{
@@ -351,6 +390,10 @@ func TestMainHandler_EmptyBody(t *testing.T) {
 }
 
 func TestURLShortener_RetrieveNonExistent(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock.NewMockDBInterface(ctrl)
+
 	cfg := createTestConfig()
 	tmpFile, err := os.CreateTemp("", "test-*.txt")
 	if err != nil {
@@ -359,7 +402,7 @@ func TestURLShortener_RetrieveNonExistent(t *testing.T) {
 	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
 	defer tmpFile.Close()
 	fileStorage := storage.NewFileStorage(tmpFile.Name())
-	us := NewURLShortener(cfg.BaseURL, fileStorage)
+	us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
 
 	retrievedURL, exists := us.Retrieve("nonexistent")
 	assert.False(t, exists)
@@ -367,6 +410,10 @@ func TestURLShortener_RetrieveNonExistent(t *testing.T) {
 }
 
 func TestGenerateUniqueShortURL_Uniqueness(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock.NewMockDBInterface(ctrl)
+
 	cfg := createTestConfig()
 	tmpFile, err := os.CreateTemp("", "test-*.txt")
 	if err != nil {
@@ -375,7 +422,7 @@ func TestGenerateUniqueShortURL_Uniqueness(t *testing.T) {
 	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
 	defer tmpFile.Close()
 	fileStorage := storage.NewFileStorage(tmpFile.Name())
-	us := NewURLShortener(cfg.BaseURL, fileStorage)
+	us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
 	codes := make(map[string]bool)
 	const numCodes = 10
 
@@ -386,4 +433,44 @@ func TestGenerateUniqueShortURL_Uniqueness(t *testing.T) {
 	}
 
 	assert.Len(t, codes, numCodes)
+}
+
+func TestURLShortener_DBPing(t *testing.T) {
+	values := []bool{true, false}
+	for _, expectSuccess := range values {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		mockDB := mock.NewMockDBInterface(ctrl)
+
+		cfg := createTestConfig()
+		tmpFile, err := os.CreateTemp("", "test-*.txt")
+		if err != nil {
+			t.Fatalf("Failed to create temp file: %v", err)
+		}
+		defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
+		defer tmpFile.Close()
+		fileStorage := storage.NewFileStorage(tmpFile.Name())
+		us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
+
+		if expectSuccess {
+			mockDB.EXPECT().
+				PingContext(gomock.Any()).
+				Return(nil)
+		} else {
+			mockDB.EXPECT().
+				PingContext(gomock.Any()).
+				Return(errors.New("database connection failed"))
+		}
+
+		handler := us.mainHandler()
+
+		resp, _ := testRequest(t, handler, http.MethodGet, "/ping", nil, nil)
+		defer resp.Body.Close()
+
+		if expectSuccess {
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+		} else {
+			assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+		}
+	}
 }
