@@ -262,9 +262,8 @@ func run() error {
 // runMigrations запускает миграции базы данных
 func runMigrations(dsn string) error {
 	// Реализация миграций с использованием golang-migrate/migrate
-	// Это упрощенная версия - в реальности нужно добавить обработку ошибок и версий
 	m, err := migrate.New(
-		"file://internal/migrations",
+		"file://migrations",
 		dsn,
 	)
 	if err != nil {
