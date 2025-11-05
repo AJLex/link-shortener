@@ -67,9 +67,6 @@ func (p *PostgresStorage) GetAll() (map[string]string, error) {
 }
 
 func (p *PostgresStorage) Ping(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-
 	return p.db.PingContext(ctx)
 }
 

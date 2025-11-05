@@ -396,6 +396,10 @@ func TestURLShortener_RetrieveNonExistent(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	mockDB := mock.NewMockStorage(ctrl)
+	mockDB.EXPECT().
+		GetAll().
+		Return(nil, nil).
+		Times(1)
 
 	cfg := createTestConfig()
 
