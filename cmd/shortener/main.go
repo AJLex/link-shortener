@@ -1,10 +1,10 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -18,6 +18,9 @@ import (
 	"github.com/AJLex/link-shortener/internal/storage"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"go.uber.org/zap"
 )
 
@@ -32,16 +35,14 @@ type URLShortener struct {
 	mu      sync.RWMutex
 	data    map[string]string // shortURL -> originalURL
 	baseURL string
-	storage *storage.FileStorage // добавляем хранилище
-	db      storage.DBInterface
+	storage storage.Storage // единый интерфейс хранилища
 }
 
-func NewURLShortener(baseURL string, storage *storage.FileStorage, db storage.DBInterface) *URLShortener {
+func NewURLShortener(baseURL string, storage storage.Storage) *URLShortener {
 	shortener := &URLShortener{
 		data:    make(map[string]string),
 		baseURL: baseURL,
 		storage: storage,
-		db:      db,
 	}
 
 	// Загружаем данные из хранилища
@@ -54,42 +55,45 @@ func (us *URLShortener) loadFromStorage() error {
 		return nil
 	}
 
-	// Загружаем данные из файла
-	if err := us.storage.Load(); err != nil {
+	// Загружаем данные из хранилища.
+	entries, err := us.storage.GetAll()
+	if err != nil {
 		return err
 	}
 
-	// Преобразуем загруженные данные в map
 	us.mu.Lock()
 	defer us.mu.Unlock()
-
-	// Предполагая, что у FileStorage есть метод GetEntries()
-	entries := us.storage.GetEntries()
-	for _, entry := range entries {
-		us.data[entry.ShortURL] = entry.OriginalURL
+	for shortURL, originalURL := range entries {
+		us.data[shortURL] = originalURL
 	}
 
 	return nil
 }
 
-// SaveToStorage сохраняет URL в хранилище
-func (us *URLShortener) SaveToStorage(shortURL, originalURL string) error {
-	if us.storage == nil {
-		return nil
-	}
+// Store сохраняет ссылку и возвращает короткий код
+func (us *URLShortener) Store(originalURL string) (string, error) {
+	us.mu.Lock()
+	defer us.mu.Unlock()
 
-	// Генерируем ID (можно использовать shortURL или что-то другое)
-	entry := models.URLEntry{
-		UUID:        generateID(),
-		ShortURL:    shortURL,
-		OriginalURL: originalURL,
-	}
+	// Генерируем уникальный short code
+	shortCode := us.GenerateUniqueShortURL()
 
-	return us.storage.Save(entry)
+	// Сохраняем в память
+	us.data[shortCode] = originalURL
+
+	// Сохраняем в основное хранилище
+	err := us.storage.Save(shortCode, originalURL)
+
+	return shortCode, err
 }
 
-func generateID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+// Retrieve получает оригинальную ссылку по короткому коду
+func (us *URLShortener) Retrieve(shortCode string) (string, bool) {
+	us.mu.RLock()
+	defer us.mu.RUnlock()
+
+	longURL, exists := us.data[shortCode]
+	return longURL, exists
 }
 
 // GenerateShortURL создает короткий код из хеша
@@ -102,30 +106,6 @@ func (us *URLShortener) GenerateUniqueShortURL() string {
 	// Кодируем в Base64URL и обрезаем до 10 символов
 	shortCode := base64.URLEncoding.EncodeToString(randomBytes)[:10]
 	return shortCode
-}
-
-// Store сохраняет ссылку и возвращает короткий код
-func (us *URLShortener) Store(originalURL string) (string, error) {
-	us.mu.Lock()
-	defer us.mu.Unlock()
-
-	// Генерируем уникальный short code
-	shortCode := us.GenerateUniqueShortURL()
-
-	us.data[shortCode] = originalURL
-
-	err := us.SaveToStorage(shortCode, originalURL)
-
-	return shortCode, err
-}
-
-// Retrieve получает оригинальную ссылку по короткому коду
-func (us *URLShortener) Retrieve(shortCode string) (string, bool) {
-	us.mu.RLock()
-	defer us.mu.RUnlock()
-
-	longURL, exists := us.data[shortCode]
-	return longURL, exists
 }
 
 func (us *URLShortener) handlerRoot(w http.ResponseWriter, r *http.Request) {
@@ -172,7 +152,10 @@ func (us *URLShortener) redirectToOriginal(w http.ResponseWriter, r *http.Reques
 }
 
 func (us *URLShortener) DBPing(w http.ResponseWriter, r *http.Request) {
-	if err := storage.PingDB(us.db); err != nil {
+	ctx, cancel := context.WithTimeout(r.Context(), 1*time.Second)
+	defer cancel()
+
+	if err := us.storage.Ping(ctx); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -236,19 +219,36 @@ func (us *URLShortener) mainHandler() chi.Router {
 func run() error {
 	cfg := config.LoadConfig()
 
-	db, err := storage.NewConnection(cfg)
+	var db storage.Storage
+	var err error
 
-	if err != nil {
-		return err
+	if cfg.PostgreSQLDns != "" {
+		db, err = storage.NewPostgresStorage(cfg.PostgreSQLDns)
+		if err != nil {
+			logger.Log.Warn("PostgreSQL connection failed, falling back to file storage", zap.Error(err))
+		} else {
+			logger.Log.Info("Successfully connected to PostgreSQL")
+
+			// Запускаем миграции
+			if err := runMigrations(cfg.PostgreSQLDns); err != nil {
+				logger.Log.Warn("Migrations failed", zap.Error(err))
+			}
+		}
 	}
 
-	defer db.Close() // закрываем в main
+	// Если БД не доступна, пробуем файловое хранилище
+	if db == nil && cfg.FileStoragePath != "" {
+		logger.Log.Info("Using file storage", zap.String("path", cfg.FileStoragePath))
+		db = storage.NewFileStorage(cfg.FileStoragePath)
+	}
 
-	// Создаем файловое хранилище
-	fileStorage := storage.NewFileStorage(cfg.FileStoragePath)
+	if db == nil {
+		logger.Log.Info("Using in-memory storage")
+		db = storage.NewMemoryStorage()
+	}
 
 	// Создаем shortener с хранилищем
-	us := NewURLShortener(cfg.BaseURL, fileStorage, db)
+	us := NewURLShortener(cfg.BaseURL, db)
 
 	if err := logger.Initialize(zap.InfoLevel.String()); err != nil {
 		return err
@@ -257,4 +257,24 @@ func run() error {
 	logger.Log.Info("Running server", zap.String("address", cfg.ServerAddress))
 
 	return http.ListenAndServe(cfg.ServerAddress, logger.RequestLogger(gzip.GzipMiddleware(us.mainHandler())))
+}
+
+// runMigrations запускает миграции базы данных
+func runMigrations(dsn string) error {
+	// Реализация миграций с использованием golang-migrate/migrate
+	// Это упрощенная версия - в реальности нужно добавить обработку ошибок и версий
+	m, err := migrate.New(
+		"file://internal/migrations",
+		dsn,
+	)
+	if err != nil {
+		return err
+	}
+	defer m.Close()
+
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		return err
+	}
+
+	return nil
 }

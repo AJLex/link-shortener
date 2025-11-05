@@ -9,10 +9,8 @@ import (
 
 // Константы для значений по умолчанию
 const (
-	defaultServerAddress   = ":8080"
-	defaultBaseURL         = "http://localhost:8080"
-	defaultFileStoragePath = "shortener"
-	defaultPostgreSQLDsn   = "postgres://postgres:XXX@localhost:5432/mydatabase?sslmode=disable"
+	defaultServerAddress = ":8080"
+	defaultBaseURL       = "http://localhost:8080"
 )
 
 // EnvGetter интерфейс для получения переменных окружения
@@ -53,8 +51,8 @@ func LoadConfigWithEnv(envGetter EnvGetter) Config {
 	// Определяем флаги командной строки
 	serverAddressFlag := flag.String("a", defaultServerAddress, "Server address")
 	baseURLFlag := flag.String("b", defaultBaseURL, "Base URL")
-	fileStoragePathLFlag := flag.String("f", defaultFileStoragePath, "File storage path")
-	postgreSQLDnsFlag := flag.String("d", defaultPostgreSQLDsn, "File storage path")
+	fileStoragePathLFlag := flag.String("f", "", "File storage path")
+	postgreSQLDnsFlag := flag.String("d", "", "File storage path")
 	flag.Parse()
 
 	cfg := Config{

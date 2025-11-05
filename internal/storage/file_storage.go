@@ -1,9 +1,12 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	models "github.com/AJLex/link-shortener/internal/model"
 )
@@ -20,11 +23,52 @@ func NewFileStorage(filePath string) *FileStorage {
 		entries:  []models.URLEntry{},
 	}
 	// Автоматически загружаем данные при создании
-	_ = storage.Load()
+	_ = storage.load()
 	return storage
 }
 
-func (s *FileStorage) Load() error {
+// Реализация методов интерфейса Storage
+
+func (s *FileStorage) Save(shortURL, originalURL string) error {
+	entry := models.URLEntry{
+		UUID:        generateID(),
+		ShortURL:    shortURL,
+		OriginalURL: originalURL,
+	}
+	return s.saveEntry(entry)
+}
+
+func (s *FileStorage) Get(shortURL string) (string, error) {
+	entry, err := s.findByShortURL(shortURL)
+	if err != nil {
+		return "", err
+	}
+	if entry == nil {
+		return "", fmt.Errorf("URL not found")
+	}
+	return entry.OriginalURL, nil
+}
+
+func (s *FileStorage) GetAll() (map[string]string, error) {
+	entries := s.getEntries()
+	result := make(map[string]string)
+	for _, entry := range entries {
+		result[entry.ShortURL] = entry.OriginalURL
+	}
+	return result, nil
+}
+
+func (s *FileStorage) Ping(ctx context.Context) error {
+	// Для файлового хранилища всегда доступно
+	return nil
+}
+
+func (s *FileStorage) Close() error {
+	// Для файлового хранилища не нужно закрывать ресурсы
+	return nil
+}
+
+func (s *FileStorage) load() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -39,7 +83,7 @@ func (s *FileStorage) Load() error {
 	return json.Unmarshal(data, &s.entries)
 }
 
-func (s *FileStorage) Save(entry models.URLEntry) error {
+func (s *FileStorage) saveEntry(entry models.URLEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -54,7 +98,7 @@ func (s *FileStorage) Save(entry models.URLEntry) error {
 }
 
 // GetEntries возвращает копию всех записей
-func (s *FileStorage) GetEntries() []models.URLEntry {
+func (s *FileStorage) getEntries() []models.URLEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -64,7 +108,7 @@ func (s *FileStorage) GetEntries() []models.URLEntry {
 	return entries
 }
 
-func (s *FileStorage) FindByShortURL(shortURL string) (*models.URLEntry, error) {
+func (s *FileStorage) findByShortURL(shortURL string) (*models.URLEntry, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -74,4 +118,8 @@ func (s *FileStorage) FindByShortURL(shortURL string) (*models.URLEntry, error) 
 		}
 	}
 	return nil, nil // не найдено - не ошибка
+}
+
+func generateID() string {
+	return fmt.Sprintf("%d", time.Now().UnixNano())
 }

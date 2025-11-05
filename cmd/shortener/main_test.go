@@ -7,12 +7,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/AJLex/link-shortener/internal/config"
 	models "github.com/AJLex/link-shortener/internal/model"
-	"github.com/AJLex/link-shortener/internal/storage"
 	"github.com/AJLex/link-shortener/internal/storage/mock"
 
 	"github.com/stretchr/testify/assert"
@@ -87,17 +85,24 @@ func TestHandlerRoot_StoreAndRedirect_Comprehensive(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
-			mockDB := mock.NewMockDBInterface(ctrl)
+			mockDB := mock.NewMockStorage(ctrl)
 
 			cfg := createTestConfig()
-			tmpFile, err := os.CreateTemp("", "test-*.txt")
-			if err != nil {
-				t.Fatalf("Failed to create temp file: %v", err)
+			mockDB.EXPECT().
+				GetAll().
+				Return(nil, nil).
+				Times(1)
+			if tc.expectSuccess {
+				mockDB.EXPECT().
+					Save(gomock.Any(), tc.originalURL).
+					Return(nil).
+					Times(1)
+			} else {
+				mockDB.EXPECT().
+					Save(gomock.Any(), tc.originalURL).Times(0)
 			}
-			defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
-			defer tmpFile.Close()
-			fileStorage := storage.NewFileStorage(tmpFile.Name())
-			us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
+
+			us := NewURLShortener(cfg.BaseURL, mockDB)
 			handler := us.mainHandler()
 
 			headers := map[string]string{
@@ -180,17 +185,24 @@ func TestHandlerPostJson(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
-			mockDB := mock.NewMockDBInterface(ctrl)
+			mockDB := mock.NewMockStorage(ctrl)
 
 			cfg := createTestConfig()
-			tmpFile, err := os.CreateTemp("", "test-*.txt")
-			if err != nil {
-				t.Fatalf("Failed to create temp file: %v", err)
+			mockDB.EXPECT().
+				GetAll().
+				Return(nil, nil).
+				Times(1)
+			if tc.expectSuccess {
+				mockDB.EXPECT().
+					Save(gomock.Any(), "https://google.com").
+					Return(nil).
+					Times(1)
+			} else {
+				mockDB.EXPECT().
+					Save(gomock.Any(), nil).Times(0)
 			}
-			defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
-			defer tmpFile.Close()
-			fileStorage := storage.NewFileStorage(tmpFile.Name())
-			us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
+
+			us := NewURLShortener(cfg.BaseURL, mockDB)
 			handler := us.mainHandler()
 			fmt.Println(tc.contentType, tc.body)
 
@@ -213,18 +225,21 @@ func TestHandlerPostJson(t *testing.T) {
 func TestURLShortener_StoreAndRetrieve(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	mockDB := mock.NewMockDBInterface(ctrl)
+	mockDB := mock.NewMockStorage(ctrl)
 
 	cfg := createTestConfig()
-	tmpFile, err := os.CreateTemp("", "test-*.txt")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
-	defer tmpFile.Close()
-	fileStorage := storage.NewFileStorage(tmpFile.Name())
-	us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
+
 	originalURL := "https://example.com"
+	mockDB.EXPECT().
+		GetAll().
+		Return(nil, nil).
+		Times(1)
+	mockDB.EXPECT().
+		Save(gomock.Any(), originalURL).
+		Return(nil).
+		Times(1)
+
+	us := NewURLShortener(cfg.BaseURL, mockDB)
 
 	shortCode, _ := us.Store(originalURL)
 	require.NotEmpty(t, shortCode)
@@ -237,17 +252,15 @@ func TestURLShortener_StoreAndRetrieve(t *testing.T) {
 func TestMainHandler_RootPath_InvalidMethod(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	mockDB := mock.NewMockDBInterface(ctrl)
+	mockDB := mock.NewMockStorage(ctrl)
 
 	cfg := createTestConfig()
-	tmpFile, err := os.CreateTemp("", "test-*.txt")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
-	defer tmpFile.Close()
-	fileStorage := storage.NewFileStorage(tmpFile.Name())
-	us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
+	mockDB.EXPECT().
+		GetAll().
+		Return(nil, nil).
+		Times(1)
+
+	us := NewURLShortener(cfg.BaseURL, mockDB)
 	handler := us.mainHandler()
 
 	invalidMethods := []string{"GET", "PUT", "DELETE", "PATCH"}
@@ -264,17 +277,15 @@ func TestMainHandler_RootPath_InvalidMethod(t *testing.T) {
 func TestMainHandler_ShortURL_InvalidMethod(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	mockDB := mock.NewMockDBInterface(ctrl)
+	mockDB := mock.NewMockStorage(ctrl)
 
 	cfg := createTestConfig()
-	tmpFile, err := os.CreateTemp("", "test-*.txt")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
-	defer tmpFile.Close()
-	fileStorage := storage.NewFileStorage(tmpFile.Name())
-	us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
+	mockDB.EXPECT().
+		GetAll().
+		Return(nil, nil).
+		Times(1)
+
+	us := NewURLShortener(cfg.BaseURL, mockDB)
 	handler := us.mainHandler()
 
 	invalidMethods := []string{"POST", "PUT", "DELETE", "PATCH"}
@@ -291,17 +302,15 @@ func TestMainHandler_ShortURL_InvalidMethod(t *testing.T) {
 func TestMainHandler_PostJson_InvalidMethod(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	mockDB := mock.NewMockDBInterface(ctrl)
+	mockDB := mock.NewMockStorage(ctrl)
 
 	cfg := createTestConfig()
-	tmpFile, err := os.CreateTemp("", "test-*.txt")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
-	defer tmpFile.Close()
-	fileStorage := storage.NewFileStorage(tmpFile.Name())
-	us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
+	mockDB.EXPECT().
+		GetAll().
+		Return(nil, nil).
+		Times(1)
+
+	us := NewURLShortener(cfg.BaseURL, mockDB)
 	handler := us.mainHandler()
 
 	invalidMethods := []string{"GET", "PUT", "DELETE", "PATCH"}
@@ -318,17 +327,15 @@ func TestMainHandler_PostJson_InvalidMethod(t *testing.T) {
 func TestMainHandler_NotFound(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	mockDB := mock.NewMockDBInterface(ctrl)
+	mockDB := mock.NewMockStorage(ctrl)
 
 	cfg := createTestConfig()
-	tmpFile, err := os.CreateTemp("", "test-*.txt")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
-	defer tmpFile.Close()
-	fileStorage := storage.NewFileStorage(tmpFile.Name())
-	us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
+	mockDB.EXPECT().
+		GetAll().
+		Return(nil, nil).
+		Times(1)
+
+	us := NewURLShortener(cfg.BaseURL, mockDB)
 	handler := us.mainHandler()
 
 	resp, _ := testRequest(t, handler, "GET", "/nonexistent", nil, nil)
@@ -340,17 +347,15 @@ func TestMainHandler_NotFound(t *testing.T) {
 func TestMainHandler_InvalidContentType(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	mockDB := mock.NewMockDBInterface(ctrl)
+	mockDB := mock.NewMockStorage(ctrl)
+	mockDB.EXPECT().
+		GetAll().
+		Return(nil, nil).
+		Times(1)
 
 	cfg := createTestConfig()
-	tmpFile, err := os.CreateTemp("", "test-*.txt")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
-	defer tmpFile.Close()
-	fileStorage := storage.NewFileStorage(tmpFile.Name())
-	us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
+
+	us := NewURLShortener(cfg.BaseURL, mockDB)
 	handler := us.mainHandler()
 
 	headers := map[string]string{
@@ -366,17 +371,15 @@ func TestMainHandler_InvalidContentType(t *testing.T) {
 func TestMainHandler_EmptyBody(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	mockDB := mock.NewMockDBInterface(ctrl)
+	mockDB := mock.NewMockStorage(ctrl)
+	mockDB.EXPECT().
+		GetAll().
+		Return(nil, nil).
+		Times(1)
 
 	cfg := createTestConfig()
-	tmpFile, err := os.CreateTemp("", "test-*.txt")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
-	defer tmpFile.Close()
-	fileStorage := storage.NewFileStorage(tmpFile.Name())
-	us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
+
+	us := NewURLShortener(cfg.BaseURL, mockDB)
 	handler := us.mainHandler()
 
 	headers := map[string]string{
@@ -392,17 +395,11 @@ func TestMainHandler_EmptyBody(t *testing.T) {
 func TestURLShortener_RetrieveNonExistent(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	mockDB := mock.NewMockDBInterface(ctrl)
+	mockDB := mock.NewMockStorage(ctrl)
 
 	cfg := createTestConfig()
-	tmpFile, err := os.CreateTemp("", "test-*.txt")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
-	defer tmpFile.Close()
-	fileStorage := storage.NewFileStorage(tmpFile.Name())
-	us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
+
+	us := NewURLShortener(cfg.BaseURL, mockDB)
 
 	retrievedURL, exists := us.Retrieve("nonexistent")
 	assert.False(t, exists)
@@ -412,17 +409,15 @@ func TestURLShortener_RetrieveNonExistent(t *testing.T) {
 func TestGenerateUniqueShortURL_Uniqueness(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	mockDB := mock.NewMockDBInterface(ctrl)
+	mockDB := mock.NewMockStorage(ctrl)
+	mockDB.EXPECT().
+		GetAll().
+		Return(nil, nil).
+		Times(1)
 
 	cfg := createTestConfig()
-	tmpFile, err := os.CreateTemp("", "test-*.txt")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
-	defer tmpFile.Close()
-	fileStorage := storage.NewFileStorage(tmpFile.Name())
-	us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
+
+	us := NewURLShortener(cfg.BaseURL, mockDB)
 	codes := make(map[string]bool)
 	const numCodes = 10
 
@@ -437,28 +432,25 @@ func TestGenerateUniqueShortURL_Uniqueness(t *testing.T) {
 
 func TestURLShortener_DBPing(t *testing.T) {
 	values := []bool{true, false}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock.NewMockStorage(ctrl)
+	mockDB.EXPECT().
+		GetAll().
+		Return(nil, nil).
+		Times(1)
+
+	cfg := createTestConfig()
+
+	us := NewURLShortener(cfg.BaseURL, mockDB)
 	for _, expectSuccess := range values {
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
-		mockDB := mock.NewMockDBInterface(ctrl)
-
-		cfg := createTestConfig()
-		tmpFile, err := os.CreateTemp("", "test-*.txt")
-		if err != nil {
-			t.Fatalf("Failed to create temp file: %v", err)
-		}
-		defer os.Remove(tmpFile.Name()) // Удаляем файл после теста
-		defer tmpFile.Close()
-		fileStorage := storage.NewFileStorage(tmpFile.Name())
-		us := NewURLShortener(cfg.BaseURL, fileStorage, mockDB)
-
 		if expectSuccess {
 			mockDB.EXPECT().
-				PingContext(gomock.Any()).
+				Ping(gomock.Any()).
 				Return(nil)
 		} else {
 			mockDB.EXPECT().
-				PingContext(gomock.Any()).
+				Ping(gomock.Any()).
 				Return(errors.New("database connection failed"))
 		}
 
