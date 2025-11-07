@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"maps"
 	"net/http"
@@ -24,6 +25,8 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"go.uber.org/zap"
 )
+
+var ErrExists = errors.New("exists")
 
 // функция main вызывается автоматически при запуске приложения
 func main() {
@@ -95,7 +98,7 @@ func (us *URLShortener) Store(originalURL string) (string, error) {
 
 	// Если URL уже существует, возвращаем существующий код
 	if existing != "" {
-		return existing, nil
+		return existing, ErrExists
 	}
 
 	// Для memory/file storage обновляем локальный кэш
@@ -160,14 +163,19 @@ func (us *URLShortener) handlerRoot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	shortCode, err := us.Store(originalURL)
+	statusCode := http.StatusCreated
 	if err != nil {
-		logger.Log.Info("cannot store", zap.Error(err))
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+		if errors.Is(err, ErrExists) {
+			statusCode = http.StatusConflict
+		} else {
+			logger.Log.Info("cannot store", zap.Error(err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(http.StatusCreated)
+	w.WriteHeader(statusCode)
 	w.Write([]byte(strings.Join([]string{us.baseURL, shortCode}, "/")))
 }
 
@@ -216,10 +224,15 @@ func (us *URLShortener) handlerPostJSON(w http.ResponseWriter, r *http.Request) 
 
 	shortCode, err := us.Store(originalURL)
 
+	statusCode := http.StatusCreated
 	if err != nil {
-		logger.Log.Info("cannot store", zap.Error(err))
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+		if errors.Is(err, ErrExists) {
+			statusCode = http.StatusConflict
+		} else {
+			logger.Log.Info("cannot store", zap.Error(err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	resp := models.ShortenResponse{
@@ -227,7 +240,7 @@ func (us *URLShortener) handlerPostJSON(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Header().Set("Content-Type", models.TypeApplicationJSON)
-	w.WriteHeader(http.StatusCreated)
+	w.WriteHeader(statusCode)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
