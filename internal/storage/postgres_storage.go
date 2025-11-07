@@ -3,10 +3,13 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+var ErrExists = errors.New("exists")
 
 type PostgresStorage struct {
 	db *sql.DB
@@ -51,6 +54,10 @@ func (p *PostgresStorage) Save(shortURL, originalURL string) (string, error) {
 			"SELECT short_code FROM urls WHERE original_url = $1",
 			originalURL,
 		).Scan(&resultShortURL)
+		if err != nil {
+			return "", err
+		}
+		return resultShortURL, ErrExists
 	}
 
 	if err != nil {

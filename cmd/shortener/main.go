@@ -26,8 +26,6 @@ import (
 	"go.uber.org/zap"
 )
 
-var ErrExists = errors.New("exists")
-
 // функция main вызывается автоматически при запуске приложения
 func main() {
 	if err := run(); err != nil {
@@ -93,12 +91,7 @@ func (us *URLShortener) Store(originalURL string) (string, error) {
 	// Сохраняем в хранилище
 	existing, err := us.storage.Save(shortCode, originalURL)
 	if err != nil {
-		return "", err
-	}
-
-	// Если URL уже существует, возвращаем существующий код
-	if existing != "" {
-		return existing, ErrExists
+		return existing, err
 	}
 
 	// Для memory/file storage обновляем локальный кэш
@@ -165,7 +158,7 @@ func (us *URLShortener) handlerRoot(w http.ResponseWriter, r *http.Request) {
 	shortCode, err := us.Store(originalURL)
 	statusCode := http.StatusCreated
 	if err != nil {
-		if errors.Is(err, ErrExists) {
+		if errors.Is(err, storage.ErrExists) {
 			statusCode = http.StatusConflict
 		} else {
 			logger.Log.Info("cannot store", zap.Error(err))
@@ -226,7 +219,7 @@ func (us *URLShortener) handlerPostJSON(w http.ResponseWriter, r *http.Request) 
 
 	statusCode := http.StatusCreated
 	if err != nil {
-		if errors.Is(err, ErrExists) {
+		if errors.Is(err, storage.ErrExists) {
 			statusCode = http.StatusConflict
 		} else {
 			logger.Log.Info("cannot store", zap.Error(err))
