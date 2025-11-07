@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/jackc/pgerrcode"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/lib/pq"
 )
 
 type PostgresStorage struct {
@@ -32,11 +34,36 @@ func NewPostgresStorage(dsn string) (*PostgresStorage, error) {
 	return &PostgresStorage{db: db}, nil
 }
 
-func (p *PostgresStorage) Save(shortURL, originalURL string) error {
-	query := `INSERT INTO urls (short_code, original_url) VALUES ($1, $2) 
-              ON CONFLICT (short_code) DO UPDATE SET original_url = EXCLUDED.original_url`
-	_, err := p.db.Exec(query, shortURL, originalURL)
-	return err
+func (p *PostgresStorage) Save(shortURL, originalURL string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := p.db.ExecContext(ctx, `
+        INSERT INTO urls (short_code, original_url) 
+        VALUES ($1, $2)
+    `, shortURL, originalURL)
+
+	if err != nil {
+		// Проверяем, это ошибка уникальности?
+		if pqErr, ok := err.(*pq.Error); ok {
+			if pqErr.Code == pgerrcode.UniqueViolation {
+				// Получаем существующий short_code для этого original_url
+				var existingShortURL string
+				queryErr := p.db.QueryRowContext(ctx,
+					"SELECT short_code FROM urls WHERE original_url = $1",
+					originalURL,
+				).Scan(&existingShortURL)
+
+				if queryErr != nil {
+					return "", queryErr
+				}
+				return existingShortURL, nil
+			}
+		}
+		return "", err // Другая ошибка БД
+	}
+
+	return "", nil // Успешное сохранение
 }
 
 func (p *PostgresStorage) Get(shortURL string) (string, error) {

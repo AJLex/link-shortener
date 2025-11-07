@@ -99,11 +99,12 @@ func (mr *MockStorageMockRecorder) Ping(ctx any) *gomock.Call {
 }
 
 // Save mocks base method.
-func (m *MockStorage) Save(shortURL, originalURL string) error {
+func (m *MockStorage) Save(shortURL, originalURL string) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Save", shortURL, originalURL)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // Save indicates an expected call of Save.

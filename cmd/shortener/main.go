@@ -51,12 +51,23 @@ func NewURLShortener(baseURL string, storage storage.Storage) *URLShortener {
 	return shortener
 }
 
+func (us *URLShortener) isMemoryBasedStorage() bool {
+	// Проверяем, нужно ли использовать in-memory кэш
+	_, isMemory := us.storage.(*storage.MemoryStorage)
+	_, isFile := us.storage.(*storage.FileStorage)
+	return isMemory || isFile
+}
+
 func (us *URLShortener) loadFromStorage() error {
 	if us.storage == nil {
 		return nil
 	}
 
-	// Загружаем данные из хранилища.
+	// Загружаем данные в память ТОЛЬКО для memory/file storage
+	if !us.isMemoryBasedStorage() {
+		return nil
+	}
+
 	entries, err := us.storage.GetAll()
 	if err != nil {
 		return err
@@ -73,26 +84,44 @@ func (us *URLShortener) loadFromStorage() error {
 
 // Store сохраняет ссылку и возвращает короткий код
 func (us *URLShortener) Store(originalURL string) (string, error) {
-	us.mu.Lock()
-	defer us.mu.Unlock()
-
 	// Генерируем уникальный short code
 	shortCode := us.GenerateUniqueShortURL()
 
-	// Сохраняем в память
-	us.data[shortCode] = originalURL
+	// Сохраняем в хранилище
+	existing, err := us.storage.Save(shortCode, originalURL)
+	if err != nil {
+		return "", err
+	}
 
-	// Сохраняем в основное хранилище
-	err := us.storage.Save(shortCode, originalURL)
+	// Если URL уже существует, возвращаем существующий код
+	if existing != "" {
+		return existing, nil
+	}
 
-	return shortCode, err
+	// Для memory/file storage обновляем локальный кэш
+	if us.isMemoryBasedStorage() {
+		us.mu.Lock()
+		us.data[shortCode] = originalURL
+		us.mu.Unlock()
+	}
+
+	return shortCode, nil
 }
 
 // Retrieve получает оригинальную ссылку по короткому коду
 func (us *URLShortener) Retrieve(shortCode string) (string, bool) {
+	// Для БД работаем напрямую с хранилищем
+	if !us.isMemoryBasedStorage() {
+		originalURL, err := us.storage.Get(shortCode)
+		if err != nil {
+			return "", false
+		}
+		return originalURL, true
+	}
+
+	// Для memory/file storage используем локальный кэш
 	us.mu.RLock()
 	defer us.mu.RUnlock()
-
 	longURL, exists := us.data[shortCode]
 	return longURL, exists
 }

@@ -18,11 +18,11 @@ func NewMemoryStorage() *MemoryStorage {
 	}
 }
 
-func (m *MemoryStorage) Save(shortURL, originalURL string) error {
+func (m *MemoryStorage) Save(shortURL, originalURL string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.data[shortURL] = originalURL
-	return nil
+	return "", nil
 }
 
 func (m *MemoryStorage) Get(shortURL string) (string, error) {

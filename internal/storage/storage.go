@@ -7,7 +7,8 @@ import (
 // Storage общий интерфейс для всех типов хранилищ
 type Storage interface {
 	// Save сохраняет связь shortURL -> originalURL
-	Save(shortURL, originalURL string) error
+	// В случае БД, если уже есть запись с originalURL, то вернется shortURL
+	Save(shortURL, originalURL string) (string, error)
 	// SaveBatch сохраняет связь shortURL -> originalURL побатчево
 	SaveBatch(entries map[string]string) error
 	// Get возвращает originalURL по shortURL

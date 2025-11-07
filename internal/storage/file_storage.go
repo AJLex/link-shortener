@@ -29,13 +29,13 @@ func NewFileStorage(filePath string) *FileStorage {
 
 // Реализация методов интерфейса Storage
 
-func (s *FileStorage) Save(shortURL, originalURL string) error {
+func (s *FileStorage) Save(shortURL, originalURL string) (string, error) {
 	entry := models.URLEntry{
 		UUID:        generateID(),
 		ShortURL:    shortURL,
 		OriginalURL: originalURL,
 	}
-	return s.saveEntry(entry)
+	return "", s.saveEntry(entry)
 }
 
 func (s *FileStorage) Get(shortURL string) (string, error) {
