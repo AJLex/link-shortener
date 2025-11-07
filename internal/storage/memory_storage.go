@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 )
 
@@ -53,5 +54,13 @@ func (m *MemoryStorage) Ping(ctx context.Context) error {
 
 func (m *MemoryStorage) Close() error {
 	// Не нужно освобождать ресурсы
+	return nil
+}
+
+func (m *MemoryStorage) SaveBatch(entries map[string]string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	maps.Copy(m.data, entries)
 	return nil
 }

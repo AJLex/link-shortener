@@ -73,3 +73,28 @@ func (p *PostgresStorage) Ping(ctx context.Context) error {
 func (p *PostgresStorage) Close() error {
 	return p.db.Close()
 }
+
+func (p *PostgresStorage) SaveBatch(entries map[string]string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, "INSERT INTO urls (short_code, original_url) VALUES ($1, $2)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for shortCode, originalURL := range entries {
+		if _, err := stmt.ExecContext(ctx, shortCode, originalURL); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}

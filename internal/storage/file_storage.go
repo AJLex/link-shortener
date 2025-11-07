@@ -123,3 +123,22 @@ func (s *FileStorage) findByShortURL(shortURL string) (*models.URLEntry, error) 
 func generateID() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
+
+func (s *FileStorage) SaveBatch(entries map[string]string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for shortURL, originalURL := range entries {
+		entry := models.URLEntry{
+			UUID:        generateID(),
+			ShortURL:    shortURL,
+			OriginalURL: originalURL,
+		}
+		s.entries = append(s.entries, entry)
+	}
+	data, err := json.MarshalIndent(s.entries, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.filePath, data, 0644)
+}

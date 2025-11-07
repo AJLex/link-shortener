@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"strings"
 	"sync"
@@ -204,6 +205,110 @@ func (us *URLShortener) handlerPostJSON(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+func (us *URLShortener) handlerBatch(w http.ResponseWriter, r *http.Request) {
+	if contentType := r.Header.Get("Content-Type"); contentType != models.TypeApplicationJSON {
+		logger.Log.Debug("unsupported request type", zap.String("type", contentType))
+		w.WriteHeader(http.StatusUnsupportedMediaType)
+		return
+	}
+
+	var batchRequests []models.BatchRequestItem
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(&batchRequests); err != nil {
+		logger.Log.Debug("cannot decode request JSON body", zap.Error(err))
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	// Проверяем пустой батч
+	if len(batchRequests) == 0 {
+		http.Error(w, "Batch cannot be empty", http.StatusBadRequest)
+		return
+	}
+
+	// Логируем получение батча
+	logger.Log.Info("processing batch request", zap.Int("total_entries", len(batchRequests)))
+
+	var batchResponses []models.BatchResponseItem
+	var skippedEntries []string
+
+	// Обрабатываем батчами по 100 записей
+	for i := 0; i < len(batchRequests); i += 100 {
+		end := i + 100
+		if end > len(batchRequests) {
+			end = len(batchRequests)
+		}
+
+		batch := batchRequests[i:end]
+		batchEntries := make(map[string]string)
+		batchCorrelationMap := make(map[string]string) // shortCode -> correlationID
+
+		// Подготавливаем данные для текущего батча
+		for _, item := range batch {
+			originalURL := strings.TrimSpace(item.OriginalURL)
+			correlationID := strings.TrimSpace(item.CorrelationID)
+
+			// Пропускаем пустые URL или correlation_id
+			if originalURL == "" || correlationID == "" {
+				skippedEntries = append(skippedEntries, correlationID)
+				continue
+			}
+
+			// Генерируем shortCode и сохраняем связь
+			shortCode := us.GenerateUniqueShortURL()
+			batchEntries[shortCode] = originalURL
+			batchCorrelationMap[shortCode] = correlationID
+		}
+
+		// Сохраняем батч если есть валидные записи
+		if len(batchEntries) > 0 {
+			if err := us.storage.SaveBatch(batchEntries); err != nil {
+				logger.Log.Error("failed to save batch", zap.Error(err))
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+
+			// Обновляем in-memory данные
+			us.mu.Lock()
+			maps.Copy(us.data, batchEntries)
+			us.mu.Unlock()
+
+			// Формируем ответ для успешно сохраненных записей
+			for shortCode, correlationID := range batchCorrelationMap {
+				batchResponses = append(batchResponses, models.BatchResponseItem{
+					CorrelationID: correlationID,
+					ShortURL:      strings.Join([]string{us.baseURL, shortCode}, "/"),
+				})
+			}
+		}
+	}
+
+	// Логируем пропущенные записи
+	if len(skippedEntries) > 0 {
+		logger.Log.Warn("skipped entries in batch",
+			zap.Int("count", len(skippedEntries)),
+			zap.Strings("correlation_ids", skippedEntries))
+	}
+
+	// Если не сохранили ни одной записи
+	if len(batchResponses) == 0 {
+		http.Error(w, "No valid URLs to process", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", models.TypeApplicationJSON)
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(batchResponses); err != nil {
+		logger.Log.Error("failed to encode response", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	logger.Log.Info("batch processing completed",
+		zap.Int("processed", len(batchResponses)),
+		zap.Int("skipped", len(skippedEntries)))
+}
+
 func (us *URLShortener) mainHandler() chi.Router {
 	r := chi.NewRouter()
 
@@ -212,6 +317,7 @@ func (us *URLShortener) mainHandler() chi.Router {
 
 	r.Post("/", us.handlerRoot)
 	r.Post("/api/shorten", us.handlerPostJSON)
+	r.Post("/api/shorten/batch", us.handlerBatch)
 	return r
 }
 

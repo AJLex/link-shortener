@@ -111,3 +111,17 @@ func (mr *MockStorageMockRecorder) Save(shortURL, originalURL any) *gomock.Call 
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockStorage)(nil).Save), shortURL, originalURL)
 }
+
+// SaveBatch mocks base method.
+func (m *MockStorage) SaveBatch(entries map[string]string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveBatch", entries)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveBatch indicates an expected call of SaveBatch.
+func (mr *MockStorageMockRecorder) SaveBatch(entries any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveBatch", reflect.TypeOf((*MockStorage)(nil).SaveBatch), entries)
+}
