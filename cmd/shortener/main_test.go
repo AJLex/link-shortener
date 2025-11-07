@@ -88,14 +88,14 @@ func TestHandlerRoot_StoreAndRedirect_Comprehensive(t *testing.T) {
 			mockDB := mock.NewMockStorage(ctrl)
 
 			cfg := createTestConfig()
-			mockDB.EXPECT().
-				GetAll().
-				Return(nil, nil).
-				Times(1)
+			// mockDB.EXPECT().
+			// 	GetAll().
+			// 	Return(nil, nil).
+			// 	Times(1)
 			if tc.expectSuccess {
 				mockDB.EXPECT().
 					Save(gomock.Any(), tc.originalURL).
-					Return(nil).
+					Return("", nil).
 					Times(1)
 			} else {
 				mockDB.EXPECT().
@@ -188,14 +188,14 @@ func TestHandlerPostJson(t *testing.T) {
 			mockDB := mock.NewMockStorage(ctrl)
 
 			cfg := createTestConfig()
-			mockDB.EXPECT().
-				GetAll().
-				Return(nil, nil).
-				Times(1)
+			// mockDB.EXPECT().
+			// 	GetAll().
+			// 	Return(nil, nil).
+			// 	Times(1)
 			if tc.expectSuccess {
 				mockDB.EXPECT().
 					Save(gomock.Any(), "https://google.com").
-					Return(nil).
+					Return("", nil).
 					Times(1)
 			} else {
 				mockDB.EXPECT().
@@ -230,13 +230,17 @@ func TestURLShortener_StoreAndRetrieve(t *testing.T) {
 	cfg := createTestConfig()
 
 	originalURL := "https://example.com"
-	mockDB.EXPECT().
-		GetAll().
-		Return(nil, nil).
-		Times(1)
+	// mockDB.EXPECT().
+	// 	GetAll().
+	// 	Return(nil, nil).
+	// 	Times(1)
 	mockDB.EXPECT().
 		Save(gomock.Any(), originalURL).
-		Return(nil).
+		Return("", nil).
+		Times(1)
+	mockDB.EXPECT().
+		Get(gomock.Any()).
+		Return(originalURL, nil).
 		Times(1)
 
 	us := NewURLShortener(cfg.BaseURL, mockDB)
@@ -255,10 +259,10 @@ func TestMainHandler_RootPath_InvalidMethod(t *testing.T) {
 	mockDB := mock.NewMockStorage(ctrl)
 
 	cfg := createTestConfig()
-	mockDB.EXPECT().
-		GetAll().
-		Return(nil, nil).
-		Times(1)
+	// mockDB.EXPECT().
+	// 	GetAll().
+	// 	Return(nil, nil).
+	// 	Times(1)
 
 	us := NewURLShortener(cfg.BaseURL, mockDB)
 	handler := us.mainHandler()
@@ -280,10 +284,10 @@ func TestMainHandler_ShortURL_InvalidMethod(t *testing.T) {
 	mockDB := mock.NewMockStorage(ctrl)
 
 	cfg := createTestConfig()
-	mockDB.EXPECT().
-		GetAll().
-		Return(nil, nil).
-		Times(1)
+	// mockDB.EXPECT().
+	// 	GetAll().
+	// 	Return(nil, nil).
+	// 	Times(1)
 
 	us := NewURLShortener(cfg.BaseURL, mockDB)
 	handler := us.mainHandler()
@@ -305,10 +309,10 @@ func TestMainHandler_PostJson_InvalidMethod(t *testing.T) {
 	mockDB := mock.NewMockStorage(ctrl)
 
 	cfg := createTestConfig()
-	mockDB.EXPECT().
-		GetAll().
-		Return(nil, nil).
-		Times(1)
+	// mockDB.EXPECT().
+	// 	GetAll().
+	// 	Return(nil, nil).
+	// 	Times(1)
 
 	us := NewURLShortener(cfg.BaseURL, mockDB)
 	handler := us.mainHandler()
@@ -330,9 +334,14 @@ func TestMainHandler_NotFound(t *testing.T) {
 	mockDB := mock.NewMockStorage(ctrl)
 
 	cfg := createTestConfig()
+	// mockDB.EXPECT().
+	// 	GetAll().
+	// 	Return(nil, nil).
+	// 	Times(1)
+
 	mockDB.EXPECT().
-		GetAll().
-		Return(nil, nil).
+		Get(gomock.Any()).
+		Return("", errors.New("not found")).
 		Times(1)
 
 	us := NewURLShortener(cfg.BaseURL, mockDB)
@@ -348,10 +357,10 @@ func TestMainHandler_InvalidContentType(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	mockDB := mock.NewMockStorage(ctrl)
-	mockDB.EXPECT().
-		GetAll().
-		Return(nil, nil).
-		Times(1)
+	// mockDB.EXPECT().
+	// 	GetAll().
+	// 	Return(nil, nil).
+	// 	Times(1)
 
 	cfg := createTestConfig()
 
@@ -372,10 +381,10 @@ func TestMainHandler_EmptyBody(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	mockDB := mock.NewMockStorage(ctrl)
-	mockDB.EXPECT().
-		GetAll().
-		Return(nil, nil).
-		Times(1)
+	// mockDB.EXPECT().
+	// 	GetAll().
+	// 	Return(nil, nil).
+	// 	Times(1)
 
 	cfg := createTestConfig()
 
@@ -396,9 +405,14 @@ func TestURLShortener_RetrieveNonExistent(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	mockDB := mock.NewMockStorage(ctrl)
+	// mockDB.EXPECT().
+	// 	GetAll().
+	// 	Return(nil, nil).
+	// 	Times(1)
+
 	mockDB.EXPECT().
-		GetAll().
-		Return(nil, nil).
+		Get(gomock.Any()).
+		Return("", errors.New("not found")).
 		Times(1)
 
 	cfg := createTestConfig()
@@ -414,10 +428,10 @@ func TestGenerateUniqueShortURL_Uniqueness(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	mockDB := mock.NewMockStorage(ctrl)
-	mockDB.EXPECT().
-		GetAll().
-		Return(nil, nil).
-		Times(1)
+	// mockDB.EXPECT().
+	// 	GetAll().
+	// 	Return(nil, nil).
+	// 	Times(1)
 
 	cfg := createTestConfig()
 
@@ -439,10 +453,10 @@ func TestURLShortener_DBPing(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	mockDB := mock.NewMockStorage(ctrl)
-	mockDB.EXPECT().
-		GetAll().
-		Return(nil, nil).
-		Times(1)
+	// mockDB.EXPECT().
+	// 	GetAll().
+	// 	Return(nil, nil).
+	// 	Times(1)
 
 	cfg := createTestConfig()
 
