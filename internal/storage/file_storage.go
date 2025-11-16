@@ -142,3 +142,49 @@ func (s *FileStorage) SaveBatch(entries map[string]string) error {
 	}
 	return os.WriteFile(s.filePath, data, 0644)
 }
+
+func (s *FileStorage) SaveWithUser(shortURL, originalURL, userID string) (string, error) {
+	entry := models.URLEntry{
+		UUID:        generateID(),
+		ShortURL:    shortURL,
+		OriginalURL: originalURL,
+		UserID:      userID,
+	}
+	return "", s.saveEntry(entry)
+}
+
+func (s *FileStorage) SaveBatchWithUser(entries map[string]string, userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for shortURL, originalURL := range entries {
+		entry := models.URLEntry{
+			UUID:        generateID(),
+			ShortURL:    shortURL,
+			OriginalURL: originalURL,
+			UserID:      userID,
+		}
+		s.entries = append(s.entries, entry)
+	}
+	data, err := json.MarshalIndent(s.entries, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.filePath, data, 0644)
+}
+
+func (s *FileStorage) GetByUser(userID string) ([]models.UserURL, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var result []models.UserURL
+	for _, entry := range s.entries {
+		if entry.UserID == userID {
+			result = append(result, models.UserURL{
+				ShortURL:    entry.ShortURL,
+				OriginalURL: entry.OriginalURL,
+			})
+		}
+	}
+	return result, nil
+}

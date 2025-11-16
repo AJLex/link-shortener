@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AJLex/link-shortener/internal/auth"
 	"github.com/AJLex/link-shortener/internal/config"
 	"github.com/AJLex/link-shortener/internal/gzip"
 	"github.com/AJLex/link-shortener/internal/logger"
@@ -104,6 +105,27 @@ func (us *URLShortener) Store(originalURL string) (string, error) {
 	return shortCode, nil
 }
 
+// StoreWithUser сохраняет ссылку с привязкой к пользователю и возвращает короткий код
+func (us *URLShortener) StoreWithUser(originalURL, userID string) (string, error) {
+	// Генерируем уникальный short code
+	shortCode := us.GenerateUniqueShortURL()
+
+	// Сохраняем в хранилище с userID
+	existing, err := us.storage.SaveWithUser(shortCode, originalURL, userID)
+	if err != nil {
+		return existing, err
+	}
+
+	// Для memory/file storage обновляем локальный кэш
+	if us.isMemoryBasedStorage() {
+		us.mu.Lock()
+		us.data[shortCode] = originalURL
+		us.mu.Unlock()
+	}
+
+	return shortCode, nil
+}
+
 // Retrieve получает оригинальную ссылку по короткому коду
 func (us *URLShortener) Retrieve(shortCode string) (string, bool) {
 	// Для БД работаем напрямую с хранилищем
@@ -155,7 +177,10 @@ func (us *URLShortener) handlerRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shortCode, err := us.Store(originalURL)
+	// Извлекаем userID из context
+	userID, _ := auth.GetUserID(r.Context())
+
+	shortCode, err := us.StoreWithUser(originalURL, userID)
 	statusCode := http.StatusCreated
 	if err != nil {
 		if errors.Is(err, storage.ErrExists) {
@@ -215,7 +240,10 @@ func (us *URLShortener) handlerPostJSON(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	shortCode, err := us.Store(originalURL)
+	// Извлекаем userID из context
+	userID, _ := auth.GetUserID(r.Context())
+
+	shortCode, err := us.StoreWithUser(originalURL, userID)
 
 	statusCode := http.StatusCreated
 	if err != nil {
@@ -264,6 +292,9 @@ func (us *URLShortener) handlerBatch(w http.ResponseWriter, r *http.Request) {
 	// Логируем получение батча
 	logger.Log.Info("processing batch request", zap.Int("total_entries", len(batchRequests)))
 
+	// Извлекаем userID из context
+	userID, _ := auth.GetUserID(r.Context())
+
 	var batchResponses []models.BatchResponseItem
 	var skippedEntries []string
 
@@ -297,16 +328,18 @@ func (us *URLShortener) handlerBatch(w http.ResponseWriter, r *http.Request) {
 
 		// Сохраняем батч если есть валидные записи
 		if len(batchEntries) > 0 {
-			if err := us.storage.SaveBatch(batchEntries); err != nil {
+			if err := us.storage.SaveBatchWithUser(batchEntries, userID); err != nil {
 				logger.Log.Error("failed to save batch", zap.Error(err))
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
 			}
 
-			// Обновляем in-memory данные
-			us.mu.Lock()
-			maps.Copy(us.data, batchEntries)
-			us.mu.Unlock()
+			// Обновляем in-memory данные ТОЛЬКО для memory/file storage
+			if us.isMemoryBasedStorage() {
+				us.mu.Lock()
+				maps.Copy(us.data, batchEntries)
+				us.mu.Unlock()
+			}
 
 			// Формируем ответ для успешно сохраненных записей
 			for shortCode, correlationID := range batchCorrelationMap {
@@ -344,11 +377,60 @@ func (us *URLShortener) handlerBatch(w http.ResponseWriter, r *http.Request) {
 		zap.Int("skipped", len(skippedEntries)))
 }
 
-func (us *URLShortener) mainHandler() chi.Router {
+func (us *URLShortener) handlerGetUserURLs(w http.ResponseWriter, r *http.Request) {
+	// Извлекаем userID из context
+	userID, ok := auth.GetUserID(r.Context())
+	if !ok || userID == "" {
+		logger.Log.Debug("user ID not found in context")
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	// Получаем все URL пользователя
+	urls, err := us.storage.GetByUser(userID)
+	if err != nil {
+		logger.Log.Error("failed to get user URLs", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Если у пользователя нет сохраненных URL
+	if len(urls) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Формируем полные URL для ответа
+	var response []models.UserURL
+	for _, url := range urls {
+		response = append(response, models.UserURL{
+			ShortURL:    strings.Join([]string{us.baseURL, url.ShortURL}, "/"),
+			OriginalURL: url.OriginalURL,
+		})
+	}
+
+	w.Header().Set("Content-Type", models.TypeApplicationJSON)
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logger.Log.Error("failed to encode response", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	logger.Log.Info("returned user URLs",
+		zap.String("userID", userID),
+		zap.Int("count", len(response)))
+}
+
+func (us *URLShortener) mainHandler(cfg config.Config) chi.Router {
 	r := chi.NewRouter()
+
+	// Добавляем middleware аутентификации для всех запросов
+	r.Use(auth.AuthMiddleware(cfg.JWTSecret, cfg.CookieName, cfg.CookieMaxAge, logger.Log))
 
 	r.Get("/{shortCode}", us.redirectToOriginal)
 	r.Get("/ping", us.DBPing)
+	r.Get("/api/user/urls", us.handlerGetUserURLs)
 
 	r.Post("/", us.handlerRoot)
 	r.Post("/api/shorten", us.handlerPostJSON)
@@ -397,7 +479,7 @@ func run() error {
 
 	logger.Log.Info("Running server", zap.String("address", cfg.ServerAddress))
 
-	return http.ListenAndServe(cfg.ServerAddress, logger.RequestLogger(gzip.GzipMiddleware(us.mainHandler())))
+	return http.ListenAndServe(cfg.ServerAddress, logger.RequestLogger(gzip.GzipMiddleware(us.mainHandler(cfg))))
 }
 
 // runMigrations запускает миграции базы данных

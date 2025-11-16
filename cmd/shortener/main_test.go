@@ -255,7 +255,7 @@ func TestHandlerRoot_POST_AllStorages(t *testing.T) {
 					cfg := createTestConfig()
 					store := storageCase.createStorage(t)
 					us := NewURLShortener(cfg.BaseURL, store)
-					handler := us.mainHandler()
+					handler := us.mainHandler(*cfg)
 
 					headers := map[string]string{
 						"Content-Type": "text/plain",
@@ -338,7 +338,7 @@ func TestHandlerPostJSON_AllStorages(t *testing.T) {
 					cfg := createTestConfig()
 					store := storageCase.createStorage(t)
 					us := NewURLShortener(cfg.BaseURL, store)
-					handler := us.mainHandler()
+					handler := us.mainHandler(*cfg)
 
 					headers := map[string]string{
 						"Content-Type": tc.contentType,
@@ -369,7 +369,7 @@ func TestHandlerRedirect_AllStorages(t *testing.T) {
 			cfg := createTestConfig()
 			store := storageCase.createStorage(t)
 			us := NewURLShortener(cfg.BaseURL, store)
-			handler := us.mainHandler()
+			handler := us.mainHandler(*cfg)
 
 			// Сохраняем URL
 			originalURL := "https://example.com"
@@ -439,7 +439,7 @@ func TestHandlerRoot_StorageError(t *testing.T) {
 		Times(1)
 
 	us := NewURLShortener(cfg.BaseURL, mockDB)
-	handler := us.mainHandler()
+	handler := us.mainHandler(*cfg)
 
 	headers := map[string]string{
 		"Content-Type": "text/plain",
@@ -466,7 +466,7 @@ func TestHandlerRedirect_NotFound(t *testing.T) {
 		Times(1)
 
 	us := NewURLShortener(cfg.BaseURL, mockDB)
-	handler := us.mainHandler()
+	handler := us.mainHandler(*cfg)
 
 	resp, _ := testRequest(t, handler, "GET", "/nonexistent", nil, nil)
 	defer resp.Body.Close()
@@ -502,7 +502,7 @@ func TestDBPing_Success(t *testing.T) {
 
 	cfg := createTestConfig()
 	us := NewURLShortener(cfg.BaseURL, mockDB)
-	handler := us.mainHandler()
+	handler := us.mainHandler(*cfg)
 
 	mockDB.EXPECT().
 		Ping(gomock.Any()).
@@ -523,7 +523,7 @@ func TestDBPing_Failure(t *testing.T) {
 
 	cfg := createTestConfig()
 	us := NewURLShortener(cfg.BaseURL, mockDB)
-	handler := us.mainHandler()
+	handler := us.mainHandler(*cfg)
 
 	mockDB.EXPECT().
 		Ping(gomock.Any()).
@@ -551,7 +551,7 @@ func TestHandlerRoot_Conflict(t *testing.T) {
 		Times(1)
 
 	us := NewURLShortener(cfg.BaseURL, mockDB)
-	handler := us.mainHandler()
+	handler := us.mainHandler(*cfg)
 
 	headers := map[string]string{
 		"Content-Type": "text/plain",
@@ -593,7 +593,7 @@ func TestMainHandler_InvalidMethods(t *testing.T) {
 			cfg := createTestConfig()
 			store := newTestMemoryStorage(t)
 			us := NewURLShortener(cfg.BaseURL, store)
-			handler := us.mainHandler()
+			handler := us.mainHandler(*cfg)
 
 			for _, method := range tc.invalidMethods {
 				t.Run(method, func(t *testing.T) {
@@ -611,7 +611,7 @@ func TestMainHandler_InvalidContentType(t *testing.T) {
 	cfg := createTestConfig()
 	store := newTestMemoryStorage(t)
 	us := NewURLShortener(cfg.BaseURL, store)
-	handler := us.mainHandler()
+	handler := us.mainHandler(*cfg)
 
 	headers := map[string]string{
 		"Content-Type": "application/json",

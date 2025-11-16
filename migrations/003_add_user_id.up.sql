@@ -1,0 +1,4 @@
+ALTER TABLE urls ADD COLUMN IF NOT EXISTS user_id VARCHAR(36);
+
+CREATE INDEX IF NOT EXISTS idx_user_id ON urls(user_id);
+

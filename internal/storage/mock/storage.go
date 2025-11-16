@@ -13,6 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
+	models "github.com/AJLex/link-shortener/internal/model"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -84,6 +85,21 @@ func (mr *MockStorageMockRecorder) GetAll() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAll", reflect.TypeOf((*MockStorage)(nil).GetAll))
 }
 
+// GetByUser mocks base method.
+func (m *MockStorage) GetByUser(userID string) ([]models.UserURL, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetByUser", userID)
+	ret0, _ := ret[0].([]models.UserURL)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetByUser indicates an expected call of GetByUser.
+func (mr *MockStorageMockRecorder) GetByUser(userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByUser", reflect.TypeOf((*MockStorage)(nil).GetByUser), userID)
+}
+
 // Ping mocks base method.
 func (m *MockStorage) Ping(ctx context.Context) error {
 	m.ctrl.T.Helper()
@@ -125,4 +141,33 @@ func (m *MockStorage) SaveBatch(entries map[string]string) error {
 func (mr *MockStorageMockRecorder) SaveBatch(entries any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveBatch", reflect.TypeOf((*MockStorage)(nil).SaveBatch), entries)
+}
+
+// SaveBatchWithUser mocks base method.
+func (m *MockStorage) SaveBatchWithUser(entries map[string]string, userID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveBatchWithUser", entries, userID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveBatchWithUser indicates an expected call of SaveBatchWithUser.
+func (mr *MockStorageMockRecorder) SaveBatchWithUser(entries, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveBatchWithUser", reflect.TypeOf((*MockStorage)(nil).SaveBatchWithUser), entries, userID)
+}
+
+// SaveWithUser mocks base method.
+func (m *MockStorage) SaveWithUser(shortURL, originalURL, userID string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveWithUser", shortURL, originalURL, userID)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SaveWithUser indicates an expected call of SaveWithUser.
+func (mr *MockStorageMockRecorder) SaveWithUser(shortURL, originalURL, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveWithUser", reflect.TypeOf((*MockStorage)(nil).SaveWithUser), shortURL, originalURL, userID)
 }
