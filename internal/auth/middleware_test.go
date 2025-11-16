@@ -33,7 +33,9 @@ func TestAuthMiddleware(t *testing.T) {
 			expectNewCookie: true,
 			checkResponse: func(t *testing.T, w *httptest.ResponseRecorder, userID string) {
 				assert.NotEmpty(t, userID)
-				cookies := w.Result().Cookies()
+				resp := w.Result()
+				defer resp.Body.Close()
+				cookies := resp.Cookies()
 				require.Len(t, cookies, 1)
 				assert.Equal(t, cookieName, cookies[0].Name)
 			},

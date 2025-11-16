@@ -135,6 +135,47 @@ func newTestPostgresStorageMock(t *testing.T) storage.Storage {
 		}).
 		AnyTimes()
 
+	// SaveWithUser - сохраняет с привязкой к пользователю
+	mockDB.EXPECT().
+		SaveWithUser(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(shortCode, originalURL, userID string) (string, error) {
+			// Проверяем, существует ли уже такой originalURL
+			for existingShort, existingURL := range data {
+				if existingURL == originalURL {
+					return existingShort, storage.ErrExists
+				}
+			}
+			data[shortCode] = originalURL
+			return shortCode, nil
+		}).
+		AnyTimes()
+
+	// SaveBatchWithUser - пакетное сохранение с пользователем
+	mockDB.EXPECT().
+		SaveBatchWithUser(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(entries map[string]string, userID string) error {
+			for shortCode, originalURL := range entries {
+				data[shortCode] = originalURL
+			}
+			return nil
+		}).
+		AnyTimes()
+
+	// GetByUser - возвращает URL пользователя (для упрощения возвращаем все)
+	mockDB.EXPECT().
+		GetByUser(gomock.Any()).
+		DoAndReturn(func(userID string) ([]models.UserURL, error) {
+			var result []models.UserURL
+			for shortCode, originalURL := range data {
+				result = append(result, models.UserURL{
+					ShortURL:    shortCode,
+					OriginalURL: originalURL,
+				})
+			}
+			return result, nil
+		}).
+		AnyTimes()
+
 	return mockDB
 }
 
@@ -434,7 +475,7 @@ func TestHandlerRoot_StorageError(t *testing.T) {
 
 	// Мокаем ошибку при сохранении
 	mockDB.EXPECT().
-		Save(gomock.Any(), "https://example.com").
+		SaveWithUser(gomock.Any(), "https://example.com", gomock.Any()).
 		Return("", errors.New("storage write error")).
 		Times(1)
 
@@ -546,7 +587,7 @@ func TestHandlerRoot_Conflict(t *testing.T) {
 
 	// Мокаем ситуацию, когда URL уже существует
 	mockDB.EXPECT().
-		Save(gomock.Any(), "https://example.com").
+		SaveWithUser(gomock.Any(), "https://example.com", gomock.Any()).
 		Return("existing123", storage.ErrExists).
 		Times(1)
 
