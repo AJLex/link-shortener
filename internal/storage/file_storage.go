@@ -23,7 +23,7 @@ func NewFileStorage(filePath string) *FileStorage {
 		entries:  []models.URLEntry{},
 	}
 	// Автоматически загружаем данные при создании
-	_ = storage.load()
+	storage.load()
 	return storage
 }
 
