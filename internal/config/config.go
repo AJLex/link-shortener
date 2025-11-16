@@ -9,9 +9,8 @@ import (
 
 // Константы для значений по умолчанию
 const (
-	defaultServerAddress   = ":8080"
-	defaultBaseURL         = "http://localhost:8080"
-	defaultFileStoragePath = "shortener"
+	defaultServerAddress = ":8080"
+	defaultBaseURL       = "http://localhost:8080"
 )
 
 // EnvGetter интерфейс для получения переменных окружения
@@ -30,6 +29,7 @@ type Config struct {
 	ServerAddress   string
 	BaseURL         string
 	FileStoragePath string
+	PostgreSQLDns   string
 }
 
 func getConfigValue(envGetter EnvGetter, envKey, flagValue string) string {
@@ -51,13 +51,15 @@ func LoadConfigWithEnv(envGetter EnvGetter) Config {
 	// Определяем флаги командной строки
 	serverAddressFlag := flag.String("a", defaultServerAddress, "Server address")
 	baseURLFlag := flag.String("b", defaultBaseURL, "Base URL")
-	fileStoragePathLFlag := flag.String("f", defaultFileStoragePath, "File storage path")
+	fileStoragePathLFlag := flag.String("f", "", "File storage path")
+	postgreSQLDnsFlag := flag.String("d", "", "File storage path")
 	flag.Parse()
 
 	cfg := Config{
 		ServerAddress:   getConfigValue(envGetter, "SERVER_ADDRESS", *serverAddressFlag),
 		BaseURL:         getConfigValue(envGetter, "BASE_URL", *baseURLFlag),
 		FileStoragePath: getConfigValue(envGetter, "FILE_STORAGE_PATH", *fileStoragePathLFlag),
+		PostgreSQLDns:   getConfigValue(envGetter, "DATABASE_DSN", *postgreSQLDnsFlag),
 	}
 
 	// Нормализуем BaseURL (убираем trailing slash)
