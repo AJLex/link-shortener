@@ -63,6 +63,7 @@ func (d *Deleter) Start() {
 	}
 
 	// Запускаем горутину для закрытия fanInChan после завершения всех воркеров
+	// Это ключевой момент Fan-In паттерна!
 	go func() {
 		d.wg.Wait()
 		close(d.fanInChan)
@@ -82,6 +83,12 @@ func (d *Deleter) Delete(shortCode, userID string) {
 		// Deleter уже останавливается, игнорируем
 		d.logger.Warn("Deleter is stopping, task ignored",
 			zap.String("shortCode", shortCode))
+	default:
+		// Канал полон - не блокируемся, чтобы не зависнуть HTTP handler
+		// Это предотвращает deadlock при graceful shutdown
+		d.logger.Warn("Input channel full, task dropped",
+			zap.String("shortCode", shortCode),
+			zap.String("userID", userID))
 	}
 }
 

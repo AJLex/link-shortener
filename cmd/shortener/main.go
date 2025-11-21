@@ -48,9 +48,9 @@ type URLShortener struct {
 func NewURLShortener(baseURL string, storage storage.Storage) *URLShortener {
 	// Создаём deleter с параметрами:
 	// batchSize: 100 - размер батча для обновления
-	// workers: 5 - количество fan-in воркеров
+	// workers: 20 - количество fan-in воркеров (увеличено для высокой нагрузки)
 	// flushTimeout: 5s - таймаут сброса буфера
-	del := deleter.NewDeleter(storage, 100, 5, 5*time.Second, logger.Log)
+	del := deleter.NewDeleter(storage, 100, 20, 5*time.Second, logger.Log)
 	del.Start()
 
 	shortener := &URLShortener{
