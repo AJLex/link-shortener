@@ -129,13 +129,22 @@ func TestDeleter_GracefulShutdown(t *testing.T) {
 	deleter := NewDeleter(mockStorage, 10, 3, 100*time.Millisecond, logger)
 	deleter.Start()
 
+	// Даём время на запуск всех воркеров
+	time.Sleep(50 * time.Millisecond)
+
 	// Отправляем 25 задач
 	for i := 0; i < 25; i++ {
 		deleter.Delete("code1", "user1")
 	}
 
-	// Останавливаем
+	// Даём немного времени на накопление задач в буферах воркеров
+	time.Sleep(50 * time.Millisecond)
+
+	// Останавливаем - все задачи должны быть обработаны до завершения Stop()
 	deleter.Stop()
+
+	// Даём дополнительное время на завершение обработки
+	time.Sleep(200 * time.Millisecond)
 
 	// Проверяем, что все 25 задач были обработаны
 	assert.Equal(t, 25, deletedCount, "All tasks must be processed during graceful shutdown")

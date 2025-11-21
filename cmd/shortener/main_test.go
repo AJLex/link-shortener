@@ -176,6 +176,29 @@ func newTestPostgresStorageMock(t *testing.T) storage.Storage {
 		}).
 		AnyTimes()
 
+	// GetWithDeletedFlag - получает originalURL и флаг удаления
+	mockDB.EXPECT().
+		GetWithDeletedFlag(gomock.Any()).
+		DoAndReturn(func(shortCode string) (string, bool, error) {
+			if url, exists := data[shortCode]; exists {
+				return url, false, nil // isDeleted = false для мока
+			}
+			return "", false, errors.New("not found")
+		}).
+		AnyTimes()
+
+	// DeleteBatch - помечает URL как удалённые (для мока просто удаляем)
+	mockDB.EXPECT().
+		DeleteBatch(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, shortCodes []string, userID string) error {
+			// Для упрощения просто удаляем из data
+			for _, code := range shortCodes {
+				delete(data, code)
+			}
+			return nil
+		}).
+		AnyTimes()
+
 	return mockDB
 }
 
@@ -500,10 +523,10 @@ func TestHandlerRedirect_NotFound(t *testing.T) {
 
 	cfg := createTestConfig()
 
-	// Мокаем отсутствие URL в storage
+	// Мокаем отсутствие URL в storage (используем GetWithDeletedFlag для БД)
 	mockDB.EXPECT().
-		Get("nonexistent").
-		Return("", errors.New("not found")).
+		GetWithDeletedFlag("nonexistent").
+		Return("", false, errors.New("not found")).
 		Times(1)
 
 	us := NewURLShortener(cfg.BaseURL, mockDB)
