@@ -23,6 +23,12 @@ type Storage interface {
 	GetAll() (map[string]string, error)
 	// GetByUser возвращает все URL пользователя
 	GetByUser(userID string) ([]models.UserURL, error)
+	// GetWithDeletedFlag возвращает originalURL и флаг удаления по shortURL
+	GetWithDeletedFlag(shortURL string) (originalURL string, isDeleted bool, err error)
+	// DeleteBatch помечает URL как удалённые (batch update)
+	// shortCodes - список кодов для удаления
+	// userID - ID пользователя (для проверки владения)
+	DeleteBatch(ctx context.Context, shortCodes []string, userID string) error
 	// Ping проверяет доступность хранилища
 	Ping(ctx context.Context) error
 	// Close освобождает ресурсы

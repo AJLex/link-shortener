@@ -8,6 +8,7 @@ import (
 
 	models "github.com/AJLex/link-shortener/internal/model"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/lib/pq"
 )
 
 var ErrExists = errors.New("exists")
@@ -189,7 +190,7 @@ func (p *PostgresStorage) GetByUser(userID string) ([]models.UserURL, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	query := `SELECT short_code, original_url FROM urls WHERE user_id = $1`
+	query := `SELECT short_code, original_url FROM urls WHERE user_id = $1 AND is_deleted = FALSE`
 	rows, err := p.db.QueryContext(ctx, query, userID)
 	if err != nil {
 		return nil, err
@@ -209,4 +210,40 @@ func (p *PostgresStorage) GetByUser(userID string) ([]models.UserURL, error) {
 	}
 
 	return result, rows.Err()
+}
+
+// GetWithDeletedFlag возвращает originalURL и флаг удаления по shortURL
+func (p *PostgresStorage) GetWithDeletedFlag(shortURL string) (string, bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var originalURL string
+	var isDeleted bool
+	query := `SELECT original_url, is_deleted FROM urls WHERE short_code = $1`
+	err := p.db.QueryRowContext(ctx, query, shortURL).Scan(&originalURL, &isDeleted)
+
+	if err != nil {
+		return "", false, err
+	}
+
+	return originalURL, isDeleted, nil
+}
+
+// DeleteBatch помечает URL как удалённые (batch update)
+func (p *PostgresStorage) DeleteBatch(ctx context.Context, shortCodes []string, userID string) error {
+	if len(shortCodes) == 0 {
+		return nil
+	}
+
+	// Используем pq.Array для передачи массива в PostgreSQL
+	query := `
+		UPDATE urls 
+		SET is_deleted = TRUE 
+		WHERE short_code = ANY($1)
+		  AND user_id = $2
+		  AND is_deleted = FALSE
+	`
+
+	_, err := p.db.ExecContext(ctx, query, pq.Array(shortCodes), userID)
+	return err
 }

@@ -698,3 +698,108 @@ func TestURLShortener_Ping_RealStorages(t *testing.T) {
 		})
 	}
 }
+
+// TestHandlerDeleteUserURLs_Success проверяет успешное удаление
+func TestHandlerDeleteUserURLs_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock.NewMockStorage(ctrl)
+
+	cfg := createTestConfig()
+
+	// Mock для DeleteBatch
+	mockDB.EXPECT().
+		DeleteBatch(gomock.Any(), []string{"code1", "code2"}, gomock.Any()).
+		Return(nil).
+		MinTimes(0) // Может быть вызван асинхронно
+
+	us := NewURLShortener(cfg.BaseURL, mockDB)
+	handler := us.mainHandler(*cfg)
+
+	body := `["code1", "code2"]`
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+
+	resp, _ := testRequest(t, handler, http.MethodDelete, "/api/user/urls", bytes.NewBufferString(body), headers)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusAccepted, resp.StatusCode, "Должен вернуть 202 Accepted")
+}
+
+// TestHandlerDeleteUserURLs_EmptyList проверяет пустой список
+func TestHandlerDeleteUserURLs_EmptyList(t *testing.T) {
+	cfg := createTestConfig()
+	store := newTestMemoryStorage(t)
+	us := NewURLShortener(cfg.BaseURL, store)
+	handler := us.mainHandler(*cfg)
+
+	body := `[]`
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+
+	resp, _ := testRequest(t, handler, http.MethodDelete, "/api/user/urls", bytes.NewBufferString(body), headers)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "Пустой список должен вернуть 400")
+}
+
+// TestHandlerDeleteUserURLs_InvalidJSON проверяет некорректный JSON
+func TestHandlerDeleteUserURLs_InvalidJSON(t *testing.T) {
+	cfg := createTestConfig()
+	store := newTestMemoryStorage(t)
+	us := NewURLShortener(cfg.BaseURL, store)
+	handler := us.mainHandler(*cfg)
+
+	body := `{invalid json}`
+	headers := map[string]string{
+		"Content-Type": "application/json",
+	}
+
+	resp, _ := testRequest(t, handler, http.MethodDelete, "/api/user/urls", bytes.NewBufferString(body), headers)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "Некорректный JSON должен вернуть 400")
+}
+
+// TestHandlerDeleteUserURLs_WrongContentType проверяет неправильный Content-Type
+func TestHandlerDeleteUserURLs_WrongContentType(t *testing.T) {
+	cfg := createTestConfig()
+	store := newTestMemoryStorage(t)
+	us := NewURLShortener(cfg.BaseURL, store)
+	handler := us.mainHandler(*cfg)
+
+	body := `["code1"]`
+	headers := map[string]string{
+		"Content-Type": "text/plain",
+	}
+
+	resp, _ := testRequest(t, handler, http.MethodDelete, "/api/user/urls", bytes.NewBufferString(body), headers)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusUnsupportedMediaType, resp.StatusCode, "Неправильный Content-Type должен вернуть 415")
+}
+
+// TestRedirectToOriginal_DeletedURL проверяет возврат 410 Gone для удалённого URL
+func TestRedirectToOriginal_DeletedURL(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockDB := mock.NewMockStorage(ctrl)
+
+	cfg := createTestConfig()
+
+	// Mock для GetWithDeletedFlag - URL удалён
+	mockDB.EXPECT().
+		GetWithDeletedFlag("deleted123").
+		Return("https://example.com", true, nil).
+		Times(1)
+
+	us := NewURLShortener(cfg.BaseURL, mockDB)
+	handler := us.mainHandler(*cfg)
+
+	resp, _ := testRequest(t, handler, http.MethodGet, "/deleted123", nil, nil)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusGone, resp.StatusCode, "Удалённый URL должен вернуть 410 Gone")
+}

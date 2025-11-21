@@ -179,7 +179,7 @@ func (s *FileStorage) GetByUser(userID string) ([]models.UserURL, error) {
 
 	var result []models.UserURL
 	for _, entry := range s.entries {
-		if entry.UserID == userID {
+		if entry.UserID == userID && !entry.IsDeleted {
 			result = append(result, models.UserURL{
 				ShortURL:    entry.ShortURL,
 				OriginalURL: entry.OriginalURL,
@@ -187,4 +187,43 @@ func (s *FileStorage) GetByUser(userID string) ([]models.UserURL, error) {
 		}
 	}
 	return result, nil
+}
+
+// GetWithDeletedFlag возвращает originalURL и флаг удаления по shortURL
+func (s *FileStorage) GetWithDeletedFlag(shortURL string) (string, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, entry := range s.entries {
+		if entry.ShortURL == shortURL {
+			return entry.OriginalURL, entry.IsDeleted, nil
+		}
+	}
+	return "", false, fmt.Errorf("URL not found")
+}
+
+// DeleteBatch помечает URL как удалённые
+func (s *FileStorage) DeleteBatch(ctx context.Context, shortCodes []string, userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Создаём мапу для быстрого поиска
+	toDelete := make(map[string]bool)
+	for _, code := range shortCodes {
+		toDelete[code] = true
+	}
+
+	// Обновляем записи
+	for i := range s.entries {
+		if toDelete[s.entries[i].ShortURL] && s.entries[i].UserID == userID && !s.entries[i].IsDeleted {
+			s.entries[i].IsDeleted = true
+		}
+	}
+
+	// Сохраняем обратно в файл
+	data, err := json.MarshalIndent(s.entries, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.filePath, data, 0644)
 }

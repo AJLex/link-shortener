@@ -1,0 +1,4 @@
+ALTER TABLE urls ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_is_deleted ON urls(is_deleted) WHERE is_deleted = TRUE;
+

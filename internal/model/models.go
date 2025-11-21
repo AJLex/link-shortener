@@ -21,6 +21,7 @@ type URLEntry struct {
 	ShortURL    string `json:"short_url"`
 	OriginalURL string `json:"original_url"`
 	UserID      string `json:"user_id,omitempty"`
+	IsDeleted   bool   `json:"is_deleted"`
 }
 
 // BatchRequestItem элемент запроса на пакетное сокращение
@@ -39,4 +40,13 @@ type BatchResponseItem struct {
 type UserURL struct {
 	ShortURL    string `json:"short_url"`
 	OriginalURL string `json:"original_url"`
+}
+
+// DeleteURLsRequest массив shortCode для удаления
+type DeleteURLsRequest []string
+
+// DeleteTask задача на удаление для воркеров
+type DeleteTask struct {
+	ShortCode string
+	UserID    string
 }
