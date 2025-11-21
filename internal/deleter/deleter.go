@@ -63,7 +63,6 @@ func (d *Deleter) Start() {
 	}
 
 	// Запускаем горутину для закрытия fanInChan после завершения всех воркеров
-	// Это ключевой момент Fan-In паттерна!
 	go func() {
 		d.wg.Wait()
 		close(d.fanInChan)
