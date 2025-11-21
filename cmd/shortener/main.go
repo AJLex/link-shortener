@@ -551,7 +551,20 @@ func setupGracefulShutdown(ctx context.Context, server *http.Server, us *URLShor
 
 		logger.Log.Info("Shutdown signal received")
 
-		// 1. Останавливаем deleter с таймаутом
+		// 1. Останавливаем HTTP сервер с таймаутом
+		// Graceful shutdown: завершаем текущие запросы, новые не принимаем
+		logger.Log.Info("Stopping HTTP server...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			logger.Log.Error("Server shutdown error", zap.Error(err))
+		} else {
+			logger.Log.Info("Server stopped successfully")
+		}
+
+		// 2. Останавливаем deleter с таймаутом
+		// Обрабатываем все накопленные задачи на удаление
 		logger.Log.Info("Stopping deleter...")
 		done := make(chan struct{})
 		go func() {
@@ -564,17 +577,6 @@ func setupGracefulShutdown(ctx context.Context, server *http.Server, us *URLShor
 			logger.Log.Info("Deleter stopped successfully")
 		case <-time.After(15 * time.Second):
 			logger.Log.Warn("Deleter stop timeout, forcing shutdown")
-		}
-
-		// 2. Останавливаем HTTP сервер с таймаутом
-		logger.Log.Info("Stopping HTTP server...")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			logger.Log.Error("Server shutdown error", zap.Error(err))
-		} else {
-			logger.Log.Info("Server stopped successfully")
 		}
 
 		// 3. Закрываем storage
