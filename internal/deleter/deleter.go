@@ -12,16 +12,17 @@ import (
 
 // Deleter асинхронный обработчик удаления URL с использованием Fan-In паттерна
 type Deleter struct {
-	storage      storage.Storage
-	inputChan    chan models.DeleteTask
-	fanInChan    chan []models.DeleteTask
-	batchSize    int
-	flushTimeout time.Duration
-	workers      int
-	wg           sync.WaitGroup
-	ctx          context.Context
-	cancel       context.CancelFunc
-	logger       *zap.Logger
+	storage       storage.Storage
+	inputChan     chan models.DeleteTask
+	fanInChan     chan []models.DeleteTask
+	batchSize     int
+	flushTimeout  time.Duration
+	workers       int
+	wg            sync.WaitGroup
+	processorDone chan struct{} // сигнал о завершении batch processor
+	ctx           context.Context
+	cancel        context.CancelFunc
+	logger        *zap.Logger
 }
 
 // NewDeleter создает новый Deleter
@@ -35,15 +36,16 @@ func NewDeleter(
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Deleter{
-		storage:      storage,
-		inputChan:    make(chan models.DeleteTask, 100),
-		fanInChan:    make(chan []models.DeleteTask, workers),
-		batchSize:    batchSize,
-		flushTimeout: flushTimeout,
-		workers:      workers,
-		ctx:          ctx,
-		cancel:       cancel,
-		logger:       logger,
+		storage:       storage,
+		inputChan:     make(chan models.DeleteTask, 100),
+		fanInChan:     make(chan []models.DeleteTask, workers),
+		batchSize:     batchSize,
+		flushTimeout:  flushTimeout,
+		workers:       workers,
+		processorDone: make(chan struct{}),
+		ctx:           ctx,
+		cancel:        cancel,
+		logger:        logger,
 	}
 }
 
@@ -61,6 +63,7 @@ func (d *Deleter) Start() {
 	}
 
 	// Запускаем горутину для закрытия fanInChan после завершения всех воркеров
+	// Это ключевой момент Fan-In паттерна!
 	go func() {
 		d.wg.Wait()
 		close(d.fanInChan)
@@ -139,6 +142,8 @@ func (d *Deleter) fanInWorker(id int) {
 
 // batchProcessor обрабатывает батчи из fanInChan
 func (d *Deleter) batchProcessor() {
+	defer close(d.processorDone) // Сигнализируем о завершении
+
 	d.logger.Info("Batch processor started")
 
 	// Читаем из fanInChan до его закрытия
@@ -191,6 +196,9 @@ func (d *Deleter) Stop() {
 	d.wg.Wait()
 	d.logger.Info("All workers stopped")
 
-	// 4. Batch processor завершится автоматически когда fanInChan закроется
+	// 4. Ждём завершения batch processor
+	<-d.processorDone
+	d.logger.Info("Batch processor stopped")
+
 	d.logger.Info("Deleter stopped completely")
 }
