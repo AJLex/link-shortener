@@ -610,8 +610,11 @@ func run() error {
 
 	// Создаём HTTP сервер
 	server := &http.Server{
-		Addr:    cfg.ServerAddress,
-		Handler: logger.RequestLogger(gzip.GzipMiddleware(us.mainHandler(cfg))),
+		Addr:         cfg.ServerAddress,
+		Handler:      logger.RequestLogger(gzip.GzipMiddleware(us.mainHandler(cfg))),
+		ReadTimeout:  5 * time.Second,  // Таймаут чтения запроса
+		WriteTimeout: 10 * time.Second, // Таймаут записи ответа
+		IdleTimeout:  60 * time.Second, // Таймаут для keep-alive соединений
 	}
 
 	// Настраиваем graceful shutdown
