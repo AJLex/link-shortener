@@ -614,7 +614,7 @@ func run() error {
 		Handler:      logger.RequestLogger(gzip.GzipMiddleware(us.mainHandler(cfg))),
 		ReadTimeout:  5 * time.Second,  // Таймаут чтения запроса
 		WriteTimeout: 10 * time.Second, // Таймаут записи ответа
-		IdleTimeout:  60 * time.Second, // Таймаут для keep-alive соединений
+		IdleTimeout:  5 * time.Second,  // Короткий таймаут для быстрого закрытия idle соединений
 	}
 
 	// Настраиваем graceful shutdown

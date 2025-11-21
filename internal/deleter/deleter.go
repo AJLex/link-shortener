@@ -37,7 +37,7 @@ func NewDeleter(
 
 	return &Deleter{
 		storage:       storage,
-		inputChan:     make(chan models.DeleteTask, 100),
+		inputChan:     make(chan models.DeleteTask, 10000), // Большой буфер для высокой нагрузки
 		fanInChan:     make(chan []models.DeleteTask, workers),
 		batchSize:     batchSize,
 		flushTimeout:  flushTimeout,
