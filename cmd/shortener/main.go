@@ -49,8 +49,8 @@ func NewURLShortener(baseURL string, storage storage.Storage) *URLShortener {
 	// Создаём deleter с параметрами:
 	// batchSize: 100 - размер батча для обновления
 	// workers: 20 - количество fan-in воркеров (увеличено для высокой нагрузки)
-	// flushTimeout: 100ms - короткий таймаут для быстрой обработки в тестах
-	del := deleter.NewDeleter(storage, 100, 20, 100*time.Millisecond, logger.Log)
+	// flushTimeout: 5s - таймаут сброса буфера
+	del := deleter.NewDeleter(storage, 100, 20, 5*time.Second, logger.Log)
 	del.Start()
 
 	shortener := &URLShortener{
@@ -568,17 +568,20 @@ func setupGracefulShutdown(ctx context.Context, server *http.Server, us *URLShor
 		}
 
 		// 2. Закрываем storage
-		logger.Log.Info("Closing storage...")
 		if err := us.storage.Close(); err != nil {
 			logger.Log.Error("Storage close error", zap.Error(err))
+		}
+
+		// 3. Закрываем HTTP сервер (жестко, без ожидания)
+		// Используем Close() вместо Shutdown() т.к. Shutdown() зависает в тестах
+		logger.Log.Info("Closing HTTP server...")
+		if err := server.Close(); err != nil {
+			logger.Log.Error("Server close error", zap.Error(err))
 		} else {
-			logger.Log.Info("Storage closed successfully")
+			logger.Log.Info("Server closed successfully")
 		}
 
 		logger.Log.Info("Shutdown complete")
-
-		// Примечание: HTTP сервер закроется автоматически при выходе из main()
-		// Не закрываем явно, т.к. это может вызывать зависание в тестовом окружении
 	}()
 }
 
