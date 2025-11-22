@@ -23,8 +23,8 @@ func NewPostgresStorage(dsn string) (*PostgresStorage, error) {
 		return nil, err
 	}
 
-	db.SetMaxOpenConns(25) // Увеличено для поддержки 20 воркеров + запасные соединения
-	db.SetMaxIdleConns(10) // Держим 10 idle соединений для быстрого переиспользования
+	db.SetMaxOpenConns(30) // Оптимальный пул: 10 воркеров + HTTP handlers + GET запросы
+	db.SetMaxIdleConns(15) // Достаточно idle соединений для быстрого переиспользования
 	db.SetConnMaxLifetime(15 * time.Minute)
 
 	// Проверяем соединение

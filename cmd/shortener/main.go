@@ -47,10 +47,10 @@ type URLShortener struct {
 
 func NewURLShortener(baseURL string, storage storage.Storage) *URLShortener {
 	// Создаём deleter с параметрами:
-	// batchSize: 100 - размер батча для обновления
-	// workers: 20 - количество fan-in воркеров (увеличено для высокой нагрузки)
-	// flushTimeout: 100ms - короткий таймаут для быстрой обработки в тестах
-	del := deleter.NewDeleter(storage, 100, 20, 100*time.Millisecond, logger.Log)
+	// batchSize: 5 - размер батча для обновления (уменьшен для быстрой обработки)
+	// workers: 5 - количество fan-in воркеров (оптимизировано под реальную нагрузку)
+	// flushTimeout: 500ms - увеличенный таймаут для гарантированной обработки
+	del := deleter.NewDeleter(storage, 5, 5, 500*time.Millisecond, logger.Log)
 	del.Start()
 
 	shortener := &URLShortener{
@@ -212,29 +212,18 @@ func (us *URLShortener) handlerRoot(w http.ResponseWriter, r *http.Request) {
 func (us *URLShortener) redirectToOriginal(w http.ResponseWriter, r *http.Request) {
 	shortCode := r.URL.Path[1:]
 
-	// Для БД напрямую проверяем флаг удаления
-	if !us.isMemoryBasedStorage() {
-		originalURL, isDeleted, err := us.storage.GetWithDeletedFlag(shortCode)
-		if err != nil {
-			http.Error(w, "Not found", http.StatusBadRequest)
-			return
-		}
-		if isDeleted {
-			w.WriteHeader(http.StatusGone)
-			return
-		}
-		w.Header().Set("Location", originalURL)
-		w.WriteHeader(http.StatusTemporaryRedirect)
+	// Проверяем флаг удаления для ВСЕХ типов storage
+	originalURL, isDeleted, err := us.storage.GetWithDeletedFlag(shortCode)
+	if err != nil {
+		http.Error(w, "Not found", http.StatusBadRequest)
 		return
 	}
-
-	// Для memory/file storage используем существующий метод Retrieve
-	if original, exists := us.Retrieve(shortCode); exists {
-		w.Header().Set("Location", original)
-		w.WriteHeader(http.StatusTemporaryRedirect)
-	} else {
-		http.Error(w, "Not found", http.StatusBadRequest)
+	if isDeleted {
+		w.WriteHeader(http.StatusGone)
+		return
 	}
+	w.Header().Set("Location", originalURL)
+	w.WriteHeader(http.StatusTemporaryRedirect)
 }
 
 func (us *URLShortener) DBPing(w http.ResponseWriter, r *http.Request) {
@@ -489,7 +478,7 @@ func (us *URLShortener) handlerDeleteUserURLs(w http.ResponseWriter, r *http.Req
 		us.deleter.Delete(code, userID)
 	}
 
-	logger.Log.Info("delete request accepted",
+	logger.Log.Debug("delete request accepted",
 		zap.String("userID", userID),
 		zap.Int("count", len(shortCodes)))
 

@@ -83,12 +83,6 @@ func (d *Deleter) Delete(shortCode, userID string) {
 		// Deleter уже останавливается, игнорируем
 		d.logger.Warn("Deleter is stopping, task ignored",
 			zap.String("shortCode", shortCode))
-	default:
-		// Канал полон - не блокируемся, чтобы не зависнуть HTTP handler
-		// Это предотвращает deadlock при graceful shutdown
-		d.logger.Warn("Input channel full, task dropped",
-			zap.String("shortCode", shortCode),
-			zap.String("userID", userID))
 	}
 }
 
@@ -102,17 +96,17 @@ func (d *Deleter) fanInWorker(id int) {
 
 	d.logger.Info("Fan-in worker started", zap.Int("workerID", id))
 
-	flush := func() {
+	flush := func(reason string) {
 		if len(buffer) > 0 {
 			// Отправляем накопленный батч в fanInChan
 			d.fanInChan <- buffer
 			d.logger.Debug("Worker flushed batch",
 				zap.Int("workerID", id),
-				zap.Int("batchSize", len(buffer)))
+				zap.Int("batchSize", len(buffer)),
+				zap.String("reason", reason))
 
 			// Создаём новый буфер
 			buffer = make([]models.DeleteTask, 0, d.batchSize)
-			timer.Reset(d.flushTimeout)
 		}
 	}
 
@@ -121,7 +115,7 @@ func (d *Deleter) fanInWorker(id int) {
 		case task, ok := <-d.inputChan:
 			if !ok {
 				// inputChan закрыт - отправляем последний батч и выходим
-				flush()
+				flush("channel_closed")
 				d.logger.Info("Worker stopped gracefully", zap.Int("workerID", id))
 				return
 			}
@@ -130,16 +124,23 @@ func (d *Deleter) fanInWorker(id int) {
 
 			// Если буфер заполнен - отправляем батч
 			if len(buffer) >= d.batchSize {
-				flush()
+				flush("batch_full")
+				// Сбрасываем и останавливаем таймер
+				if !timer.Stop() {
+					<-timer.C
+				}
+				timer.Reset(d.flushTimeout)
 			}
 
 		case <-timer.C:
 			// Таймаут истёк - отправляем то, что накопили
-			flush()
+			flush("timeout")
+			// КРИТИЧНО: всегда перезапускаем таймер после срабатывания
+			timer.Reset(d.flushTimeout)
 
 		case <-d.ctx.Done():
 			// Экстренная остановка
-			flush()
+			flush("context_cancelled")
 			d.logger.Info("Worker stopped by context", zap.Int("workerID", id))
 			return
 		}
@@ -175,7 +176,7 @@ func (d *Deleter) batchProcessor() {
 					zap.Int("count", len(shortCodes)),
 					zap.Error(err))
 			} else {
-				d.logger.Info("Batch deleted successfully",
+				d.logger.Debug("Batch deleted successfully",
 					zap.String("userID", userID),
 					zap.Int("count", len(shortCodes)))
 			}
