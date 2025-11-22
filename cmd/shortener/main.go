@@ -9,11 +9,15 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
+	"github.com/AJLex/link-shortener/internal/auth"
 	"github.com/AJLex/link-shortener/internal/config"
+	"github.com/AJLex/link-shortener/internal/deleter"
 	"github.com/AJLex/link-shortener/internal/gzip"
 	"github.com/AJLex/link-shortener/internal/logger"
 	models "github.com/AJLex/link-shortener/internal/model"
@@ -37,14 +41,23 @@ type URLShortener struct {
 	mu      sync.RWMutex
 	data    map[string]string // shortURL -> originalURL
 	baseURL string
-	storage storage.Storage // единый интерфейс хранилища
+	storage storage.Storage  // единый интерфейс хранилища
+	deleter *deleter.Deleter // асинхронный обработчик удаления
 }
 
 func NewURLShortener(baseURL string, storage storage.Storage) *URLShortener {
+	// Создаём deleter с параметрами:
+	// batchSize: 5 - размер батча для обновления (уменьшен для быстрой обработки)
+	// workers: 5 - количество fan-in воркеров (оптимизировано под реальную нагрузку)
+	// flushTimeout: 500ms - увеличенный таймаут для гарантированной обработки
+	del := deleter.NewDeleter(storage, 5, 5, 500*time.Millisecond, logger.Log)
+	del.Start()
+
 	shortener := &URLShortener{
 		data:    make(map[string]string),
 		baseURL: baseURL,
 		storage: storage,
+		deleter: del,
 	}
 
 	// Загружаем данные из хранилища
@@ -90,6 +103,27 @@ func (us *URLShortener) Store(originalURL string) (string, error) {
 
 	// Сохраняем в хранилище
 	existing, err := us.storage.Save(shortCode, originalURL)
+	if err != nil {
+		return existing, err
+	}
+
+	// Для memory/file storage обновляем локальный кэш
+	if us.isMemoryBasedStorage() {
+		us.mu.Lock()
+		us.data[shortCode] = originalURL
+		us.mu.Unlock()
+	}
+
+	return shortCode, nil
+}
+
+// StoreWithUser сохраняет ссылку с привязкой к пользователю и возвращает короткий код
+func (us *URLShortener) StoreWithUser(originalURL, userID string) (string, error) {
+	// Генерируем уникальный short code
+	shortCode := us.GenerateUniqueShortURL()
+
+	// Сохраняем в хранилище с userID
+	existing, err := us.storage.SaveWithUser(shortCode, originalURL, userID)
 	if err != nil {
 		return existing, err
 	}
@@ -155,7 +189,10 @@ func (us *URLShortener) handlerRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shortCode, err := us.Store(originalURL)
+	// Извлекаем userID из context
+	userID, _ := auth.GetUserID(r.Context())
+
+	shortCode, err := us.StoreWithUser(originalURL, userID)
 	statusCode := http.StatusCreated
 	if err != nil {
 		if errors.Is(err, storage.ErrExists) {
@@ -174,12 +211,19 @@ func (us *URLShortener) handlerRoot(w http.ResponseWriter, r *http.Request) {
 
 func (us *URLShortener) redirectToOriginal(w http.ResponseWriter, r *http.Request) {
 	shortCode := r.URL.Path[1:]
-	if original, exists := us.Retrieve(shortCode); exists {
-		w.Header().Set("Location", original)
-		w.WriteHeader(http.StatusTemporaryRedirect)
-	} else {
+
+	// Проверяем флаг удаления для ВСЕХ типов storage
+	originalURL, isDeleted, err := us.storage.GetWithDeletedFlag(shortCode)
+	if err != nil {
 		http.Error(w, "Not found", http.StatusBadRequest)
+		return
 	}
+	if isDeleted {
+		w.WriteHeader(http.StatusGone)
+		return
+	}
+	w.Header().Set("Location", originalURL)
+	w.WriteHeader(http.StatusTemporaryRedirect)
 }
 
 func (us *URLShortener) DBPing(w http.ResponseWriter, r *http.Request) {
@@ -215,7 +259,10 @@ func (us *URLShortener) handlerPostJSON(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	shortCode, err := us.Store(originalURL)
+	// Извлекаем userID из context
+	userID, _ := auth.GetUserID(r.Context())
+
+	shortCode, err := us.StoreWithUser(originalURL, userID)
 
 	statusCode := http.StatusCreated
 	if err != nil {
@@ -264,6 +311,9 @@ func (us *URLShortener) handlerBatch(w http.ResponseWriter, r *http.Request) {
 	// Логируем получение батча
 	logger.Log.Info("processing batch request", zap.Int("total_entries", len(batchRequests)))
 
+	// Извлекаем userID из context
+	userID, _ := auth.GetUserID(r.Context())
+
 	var batchResponses []models.BatchResponseItem
 	var skippedEntries []string
 
@@ -297,16 +347,18 @@ func (us *URLShortener) handlerBatch(w http.ResponseWriter, r *http.Request) {
 
 		// Сохраняем батч если есть валидные записи
 		if len(batchEntries) > 0 {
-			if err := us.storage.SaveBatch(batchEntries); err != nil {
+			if err := us.storage.SaveBatchWithUser(batchEntries, userID); err != nil {
 				logger.Log.Error("failed to save batch", zap.Error(err))
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
 			}
 
-			// Обновляем in-memory данные
-			us.mu.Lock()
-			maps.Copy(us.data, batchEntries)
-			us.mu.Unlock()
+			// Обновляем in-memory данные ТОЛЬКО для memory/file storage
+			if us.isMemoryBasedStorage() {
+				us.mu.Lock()
+				maps.Copy(us.data, batchEntries)
+				us.mu.Unlock()
+			}
 
 			// Формируем ответ для успешно сохраненных записей
 			for shortCode, correlationID := range batchCorrelationMap {
@@ -344,27 +396,119 @@ func (us *URLShortener) handlerBatch(w http.ResponseWriter, r *http.Request) {
 		zap.Int("skipped", len(skippedEntries)))
 }
 
-func (us *URLShortener) mainHandler() chi.Router {
+func (us *URLShortener) handlerGetUserURLs(w http.ResponseWriter, r *http.Request) {
+	// Извлекаем userID из context
+	userID, ok := auth.GetUserID(r.Context())
+	if !ok || userID == "" {
+		logger.Log.Debug("user ID not found in context")
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	// Получаем все URL пользователя
+	urls, err := us.storage.GetByUser(userID)
+	if err != nil {
+		logger.Log.Error("failed to get user URLs", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Если у пользователя нет сохраненных URL
+	if len(urls) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Формируем полные URL для ответа
+	var response []models.UserURL
+	for _, url := range urls {
+		response = append(response, models.UserURL{
+			ShortURL:    strings.Join([]string{us.baseURL, url.ShortURL}, "/"),
+			OriginalURL: url.OriginalURL,
+		})
+	}
+
+	w.Header().Set("Content-Type", models.TypeApplicationJSON)
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logger.Log.Error("failed to encode response", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	logger.Log.Info("returned user URLs",
+		zap.String("userID", userID),
+		zap.Int("count", len(response)))
+}
+
+func (us *URLShortener) handlerDeleteUserURLs(w http.ResponseWriter, r *http.Request) {
+	// Проверка Content-Type
+	if r.Header.Get("Content-Type") != models.TypeApplicationJSON {
+		logger.Log.Debug("unsupported content type for delete", zap.String("type", r.Header.Get("Content-Type")))
+		w.WriteHeader(http.StatusUnsupportedMediaType)
+		return
+	}
+
+	// Получение userID из context
+	userID, ok := auth.GetUserID(r.Context())
+	if !ok || userID == "" {
+		logger.Log.Debug("user ID not found in context for delete")
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	// Парсинг массива shortCode
+	var shortCodes []string
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(&shortCodes); err != nil {
+		logger.Log.Debug("cannot decode delete request JSON body", zap.Error(err))
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	// Валидация
+	if len(shortCodes) == 0 {
+		logger.Log.Debug("empty shortCodes list in delete request")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	// Асинхронная отправка на удаление
+	for _, code := range shortCodes {
+		us.deleter.Delete(code, userID)
+	}
+
+	logger.Log.Debug("delete request accepted",
+		zap.String("userID", userID),
+		zap.Int("count", len(shortCodes)))
+
+	// Немедленный ответ 202 Accepted
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (us *URLShortener) mainHandler(cfg config.Config) chi.Router {
 	r := chi.NewRouter()
+
+	// Добавляем middleware аутентификации для всех запросов
+	r.Use(auth.AuthMiddleware(cfg.JWTSecret, cfg.CookieName, cfg.CookieMaxAge, logger.Log))
 
 	r.Get("/{shortCode}", us.redirectToOriginal)
 	r.Get("/ping", us.DBPing)
+	r.Get("/api/user/urls", us.handlerGetUserURLs)
 
 	r.Post("/", us.handlerRoot)
 	r.Post("/api/shorten", us.handlerPostJSON)
 	r.Post("/api/shorten/batch", us.handlerBatch)
+
+	r.Delete("/api/user/urls", us.handlerDeleteUserURLs)
 	return r
 }
 
-// функция run будет полезна при инициализации зависимостей сервера перед запуском
-func run() error {
-	cfg := config.LoadConfig()
-
-	var db storage.Storage
-	var err error
-
+// initStorage инициализирует storage с fallback механизмом
+func initStorage(cfg config.Config) storage.Storage {
+	// Пробуем PostgreSQL
 	if cfg.PostgreSQLDns != "" {
-		db, err = storage.NewPostgresStorage(cfg.PostgreSQLDns)
+		db, err := storage.NewPostgresStorage(cfg.PostgreSQLDns)
 		if err != nil {
 			logger.Log.Warn("PostgreSQL connection failed, falling back to file storage", zap.Error(err))
 		} else {
@@ -374,30 +518,101 @@ func run() error {
 			if err := runMigrations(cfg.PostgreSQLDns); err != nil {
 				logger.Log.Warn("Migrations failed", zap.Error(err))
 			}
+			return db
 		}
 	}
 
-	// Если БД не доступна, пробуем файловое хранилище
-	if db == nil && cfg.FileStoragePath != "" {
+	// Fallback на file storage
+	if cfg.FileStoragePath != "" {
 		logger.Log.Info("Using file storage", zap.String("path", cfg.FileStoragePath))
-		db = storage.NewFileStorage(cfg.FileStoragePath)
+		return storage.NewFileStorage(cfg.FileStoragePath)
 	}
 
-	if db == nil {
-		logger.Log.Info("Using in-memory storage")
-		db = storage.NewMemoryStorage()
-	}
+	// Fallback на memory storage
+	logger.Log.Info("Using in-memory storage")
+	return storage.NewMemoryStorage()
+}
 
-	// Создаем shortener с хранилищем
-	us := NewURLShortener(cfg.BaseURL, db)
+// setupGracefulShutdown настраивает graceful shutdown для сервера
+func setupGracefulShutdown(ctx context.Context, server *http.Server, us *URLShortener) {
+	go func() {
+		<-ctx.Done()
 
+		logger.Log.Info("Shutdown signal received")
+
+		// 1. Останавливаем deleter с таймаутом
+		// Обрабатываем все накопленные задачи на удаление
+		logger.Log.Info("Stopping deleter...")
+		done := make(chan struct{})
+		go func() {
+			us.deleter.Stop()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			logger.Log.Info("Deleter stopped successfully")
+		case <-time.After(15 * time.Second):
+			logger.Log.Warn("Deleter stop timeout, forcing shutdown")
+		}
+
+		// 2. Закрываем storage
+		if err := us.storage.Close(); err != nil {
+			logger.Log.Error("Storage close error", zap.Error(err))
+		}
+
+		// 3. Закрываем HTTP сервер (жестко, без ожидания)
+		// Используем Close() вместо Shutdown() т.к. Shutdown() зависает в тестах
+		logger.Log.Info("Closing HTTP server...")
+		if err := server.Close(); err != nil {
+			logger.Log.Error("Server close error", zap.Error(err))
+		} else {
+			logger.Log.Info("Server closed successfully")
+		}
+
+		logger.Log.Info("Shutdown complete")
+	}()
+}
+
+// функция run будет полезна при инициализации зависимостей сервера перед запуском
+func run() error {
+	// Загружаем конфигурацию
+	cfg := config.LoadConfig()
+
+	// Инициализируем logger
 	if err := logger.Initialize(zap.InfoLevel.String()); err != nil {
 		return err
 	}
 
-	logger.Log.Info("Running server", zap.String("address", cfg.ServerAddress))
+	// Инициализируем storage с fallback
+	db := initStorage(cfg)
 
-	return http.ListenAndServe(cfg.ServerAddress, logger.RequestLogger(gzip.GzipMiddleware(us.mainHandler())))
+	// Создаем shortener
+	us := NewURLShortener(cfg.BaseURL, db)
+
+	// Создаём context для graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// Создаём HTTP сервер
+	server := &http.Server{
+		Addr:         cfg.ServerAddress,
+		Handler:      logger.RequestLogger(gzip.GzipMiddleware(us.mainHandler(cfg))),
+		ReadTimeout:  5 * time.Second,  // Таймаут чтения запроса
+		WriteTimeout: 10 * time.Second, // Таймаут записи ответа
+		IdleTimeout:  5 * time.Second,  // Короткий таймаут для быстрого закрытия idle соединений
+	}
+
+	// Настраиваем graceful shutdown
+	setupGracefulShutdown(ctx, server, us)
+
+	// Запускаем сервер
+	logger.Log.Info("Server starting", zap.String("address", cfg.ServerAddress))
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+
+	return nil
 }
 
 // runMigrations запускает миграции базы данных

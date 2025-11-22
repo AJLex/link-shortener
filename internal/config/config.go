@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -11,6 +12,9 @@ import (
 const (
 	defaultServerAddress = ":8080"
 	defaultBaseURL       = "http://localhost:8080"
+	defaultJWTSecret     = "super-secret-key-change-in-production"
+	defaultCookieName    = "auth_token"
+	defaultCookieMaxAge  = 86400 // 24 часа в секундах
 )
 
 // EnvGetter интерфейс для получения переменных окружения
@@ -30,6 +34,9 @@ type Config struct {
 	BaseURL         string
 	FileStoragePath string
 	PostgreSQLDns   string
+	JWTSecret       string
+	CookieName      string
+	CookieMaxAge    int
 }
 
 func getConfigValue(envGetter EnvGetter, envKey, flagValue string) string {
@@ -38,6 +45,17 @@ func getConfigValue(envGetter EnvGetter, envKey, flagValue string) string {
 		return envValue
 	}
 	// Вернём либо значения флага, либо значение по умолчанию
+	return flagValue
+}
+
+func getConfigIntValue(envGetter EnvGetter, envKey string, flagValue int) int {
+	// Получаем значение переменной окружения
+	if envValue := envGetter.Get(envKey); envValue != "" {
+		if intValue, err := strconv.Atoi(envValue); err == nil {
+			return intValue
+		}
+	}
+	// Возвращаем значение флага
 	return flagValue
 }
 
@@ -52,7 +70,10 @@ func LoadConfigWithEnv(envGetter EnvGetter) Config {
 	serverAddressFlag := flag.String("a", defaultServerAddress, "Server address")
 	baseURLFlag := flag.String("b", defaultBaseURL, "Base URL")
 	fileStoragePathLFlag := flag.String("f", "", "File storage path")
-	postgreSQLDnsFlag := flag.String("d", "", "File storage path")
+	postgreSQLDnsFlag := flag.String("d", "", "PostgreSQL DSN")
+	jwtSecretFlag := flag.String("s", defaultJWTSecret, "JWT secret key")
+	cookieNameFlag := flag.String("c", defaultCookieName, "Cookie name")
+	cookieMaxAgeFlag := flag.Int("m", defaultCookieMaxAge, "Cookie max age in seconds")
 	flag.Parse()
 
 	cfg := Config{
@@ -60,6 +81,9 @@ func LoadConfigWithEnv(envGetter EnvGetter) Config {
 		BaseURL:         getConfigValue(envGetter, "BASE_URL", *baseURLFlag),
 		FileStoragePath: getConfigValue(envGetter, "FILE_STORAGE_PATH", *fileStoragePathLFlag),
 		PostgreSQLDns:   getConfigValue(envGetter, "DATABASE_DSN", *postgreSQLDnsFlag),
+		JWTSecret:       getConfigValue(envGetter, "JWT_SECRET", *jwtSecretFlag),
+		CookieName:      getConfigValue(envGetter, "COOKIE_NAME", *cookieNameFlag),
+		CookieMaxAge:    getConfigIntValue(envGetter, "COOKIE_MAX_AGE", *cookieMaxAgeFlag),
 	}
 
 	// Нормализуем BaseURL (убираем trailing slash)

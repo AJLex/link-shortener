@@ -5,16 +5,26 @@ import (
 	"fmt"
 	"maps"
 	"sync"
+
+	models "github.com/AJLex/link-shortener/internal/model"
 )
+
+type urlEntry struct {
+	originalURL string
+	userID      string
+	isDeleted   bool
+}
 
 type MemoryStorage struct {
 	mu   sync.RWMutex
-	data map[string]string
+	data map[string]string   // shortCode -> originalURL (для обратной совместимости)
+	urls map[string]urlEntry // shortCode -> urlEntry (с user_id и is_deleted)
 }
 
 func NewMemoryStorage() *MemoryStorage {
 	return &MemoryStorage{
 		data: make(map[string]string),
+		urls: make(map[string]urlEntry),
 	}
 }
 
@@ -62,5 +72,84 @@ func (m *MemoryStorage) SaveBatch(entries map[string]string) error {
 	defer m.mu.Unlock()
 
 	maps.Copy(m.data, entries)
+	return nil
+}
+
+func (m *MemoryStorage) SaveWithUser(shortURL, originalURL, userID string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.data[shortURL] = originalURL
+	m.urls[shortURL] = urlEntry{
+		originalURL: originalURL,
+		userID:      userID,
+		isDeleted:   false,
+	}
+	return "", nil
+}
+
+func (m *MemoryStorage) SaveBatchWithUser(entries map[string]string, userID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	maps.Copy(m.data, entries)
+	for shortCode, originalURL := range entries {
+		m.urls[shortCode] = urlEntry{
+			originalURL: originalURL,
+			userID:      userID,
+			isDeleted:   false,
+		}
+	}
+	return nil
+}
+
+func (m *MemoryStorage) GetByUser(userID string) ([]models.UserURL, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result []models.UserURL
+	for shortCode, entry := range m.urls {
+		if entry.userID == userID && !entry.isDeleted {
+			result = append(result, models.UserURL{
+				ShortURL:    shortCode,
+				OriginalURL: entry.originalURL,
+			})
+		}
+	}
+	return result, nil
+}
+
+// GetWithDeletedFlag возвращает originalURL и флаг удаления по shortURL
+func (m *MemoryStorage) GetWithDeletedFlag(shortURL string) (string, bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	entry, exists := m.urls[shortURL]
+	if !exists {
+		// Проверяем также в data (для старых записей без urls)
+		originalURL, existsInData := m.data[shortURL]
+		if existsInData {
+			return originalURL, false, nil
+		}
+		return "", false, fmt.Errorf("URL not found")
+	}
+
+	return entry.originalURL, entry.isDeleted, nil
+}
+
+// DeleteBatch помечает URL как удалённые
+func (m *MemoryStorage) DeleteBatch(ctx context.Context, shortCodes []string, userID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, shortCode := range shortCodes {
+		if entry, exists := m.urls[shortCode]; exists {
+			// Проверяем владение
+			if entry.userID == userID && !entry.isDeleted {
+				entry.isDeleted = true
+				m.urls[shortCode] = entry
+			}
+		}
+	}
+
 	return nil
 }
